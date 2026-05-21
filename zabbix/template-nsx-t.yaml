@@ -688,8 +688,6 @@ zabbix_export:
               path: '$.labels.tier0_id'
             - lld_macro: '{#LS_ID}'
               path: '$.labels.locale_service_id'
-            - lld_macro: '{#NEIGHBOR_ID}'
-              path: '$.labels.neighbor_id'
             - lld_macro: '{#NEIGHBOR_IP}'
               path: '$.labels.neighbor_address'
             - lld_macro: '{#REMOTE_AS}'
@@ -700,7 +698,7 @@ zabbix_export:
             - uuid: a3209248b36d43a98b299f2d6bd4b74e
               name: 'BGP {#TIER0}/{#NEIGHBOR_IP} (AS {#REMOTE_AS}) on edge {#EDGE_ID}: Status'
               type: DEPENDENT
-              key: 'nsxt.bgp.status[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_ID},{#EDGE_ID}]'
+              key: 'nsxt.bgp.status[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_IP},{#EDGE_ID}]'
               master_item:
                 key: nsxt.get
               delay: '0'
@@ -709,19 +707,19 @@ zabbix_export:
               preprocessing:
                 - type: PROMETHEUS_PATTERN
                   parameters:
-                    - 'nsxv3_bgp_neighbor_status{tier0_id="{#TIER0_ID}",locale_service_id="{#LS_ID}",neighbor_id="{#NEIGHBOR_ID}",edge_node_id="{#EDGE_ID}"}'
+                    - 'nsxv3_bgp_neighbor_status{tier0_id="{#TIER0_ID}",locale_service_id="{#LS_ID}",neighbor_address="{#NEIGHBOR_IP}",edge_node_id="{#EDGE_ID}"}'
                     - value
                     - ''
               trigger_prototypes:
                 - uuid: de242abc866847778989590f2a39e154
-                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.bgp.status[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_ID},{#EDGE_ID}])<1'
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.bgp.status[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_IP},{#EDGE_ID}])<1'
                   name: 'NSX-T: BGP {#TIER0}/{#NEIGHBOR_IP} on edge {#EDGE_ID} not ESTABLISHED'
                   priority: HIGH
                   description: 'Operational scenario #6: BGP neighbor down.'
             - uuid: 99ffbc8a1b84494693c22da1cee95dcf
               name: 'BGP {#TIER0}/{#NEIGHBOR_IP} on edge {#EDGE_ID}: Received prefixes'
               type: DEPENDENT
-              key: 'nsxt.bgp.in_prefixes[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_ID},{#EDGE_ID}]'
+              key: 'nsxt.bgp.in_prefixes[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_IP},{#EDGE_ID}]'
               master_item:
                 key: nsxt.get
               delay: '0'
@@ -729,7 +727,43 @@ zabbix_export:
               preprocessing:
                 - type: PROMETHEUS_PATTERN
                   parameters:
-                    - 'nsxv3_bgp_neighbor_in_prefix_count{tier0_id="{#TIER0_ID}",locale_service_id="{#LS_ID}",neighbor_id="{#NEIGHBOR_ID}",edge_node_id="{#EDGE_ID}"}'
+                    - 'nsxv3_bgp_neighbor_in_prefix_count{tier0_id="{#TIER0_ID}",locale_service_id="{#LS_ID}",neighbor_address="{#NEIGHBOR_IP}",edge_node_id="{#EDGE_ID}"}'
+                    - value
+                    - ''
+            - uuid: f47ed6ccdeb544efbb465122dae87976
+              name: 'BGP {#TIER0}/{#NEIGHBOR_IP} on edge {#EDGE_ID}: Connection drops (counter)'
+              type: DEPENDENT
+              key: 'nsxt.bgp.drops[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_IP},{#EDGE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              description: 'Cumulative count of BGP session drops. Use Change to detect flapping over a window.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_bgp_neighbor_connection_drop_count{tier0_id="{#TIER0_ID}",locale_service_id="{#LS_ID}",neighbor_address="{#NEIGHBOR_IP}",edge_node_id="{#EDGE_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 06e98f4f2fa5461a85fd340a793cd24d
+                  expression: '(max(/NSX-T by Prometheus exporter/nsxt.bgp.drops[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_IP},{#EDGE_ID}],10m) - min(/NSX-T by Prometheus exporter/nsxt.bgp.drops[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_IP},{#EDGE_ID}],10m)) >= 3'
+                  name: 'NSX-T: BGP {#TIER0}/{#NEIGHBOR_IP} on edge {#EDGE_ID} is flapping ({ITEM.LASTVALUE} drops total)'
+                  priority: WARNING
+                  description: '3+ session drops in the last 10 minutes indicates BGP flapping.'
+            - uuid: 4c9e540f012c482c87f5b68b440c5a71
+              name: 'BGP {#TIER0}/{#NEIGHBOR_IP} on edge {#EDGE_ID}: Seconds since established'
+              type: DEPENDENT
+              key: 'nsxt.bgp.established_seconds[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_IP},{#EDGE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              units: s
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_bgp_neighbor_established_seconds{tier0_id="{#TIER0_ID}",locale_service_id="{#LS_ID}",neighbor_address="{#NEIGHBOR_IP}",edge_node_id="{#EDGE_ID}"}'
                     - value
                     - ''
 

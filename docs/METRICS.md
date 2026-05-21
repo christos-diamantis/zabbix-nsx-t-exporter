@@ -54,7 +54,9 @@ metrics add `filesystem`.
 
 ## Tunnels (new)
 
-Labels: `local_node_id`, `local_node_name`, `remote_node_id`, `remote_ip`, `encap`.
+Labels: `local_node_id`, `local_node_name`, `local_ip`, `remote_node_id`,
+`remote_ip`, `encap`. `local_ip` is part of the key because multi-TEP edges
+emit one tunnel entry per source TEP.
 
 | Metric | Type | Description |
 |---|---|---|
@@ -63,10 +65,10 @@ Labels: `local_node_id`, `local_node_name`, `remote_node_id`, `remote_ip`, `enca
 
 ## BGP neighbors (new, opt-in via `NSXV3_INCLUDE_BGP`)
 
-Labels: `tier0_id`, `tier0_name`, `locale_service_id`, `neighbor_id`,
-`neighbor_address`, `remote_as`, `edge_node_id`. The `edge_node_id` label
-exists because each neighbor has one session per edge — fault localisation
-needs the per-edge breakdown.
+Labels: `tier0_id`, `tier0_name`, `locale_service_id`, `neighbor_address`,
+`remote_as`, `edge_node_id`. Each configured BGP neighbor has one session
+per edge node — the `edge_node_id` label is required for fault localisation
+and prevents collisions when multiple edges peer with the same neighbor.
 
 | Metric | Type | Description |
 |---|---|---|
@@ -75,7 +77,11 @@ needs the per-edge breakdown.
 | `nsxv3_bgp_neighbor_out_prefix_count` | gauge | Advertised prefixes |
 | `nsxv3_bgp_neighbor_messages_received_total` | counter | Cumulative BGP messages in |
 | `nsxv3_bgp_neighbor_messages_sent_total` | counter | Cumulative BGP messages out |
-| `nsxv3_bgp_neighbor_established_seconds` | gauge | Seconds since current session established (0 when not ESTABLISHED) |
+| `nsxv3_bgp_neighbor_established_seconds` | gauge | Seconds since current session entered ESTABLISHED (0 otherwise) |
+| `nsxv3_bgp_neighbor_connection_drop_count` | counter | Cumulative count of session drops. Rate over a window detects flapping |
+| `nsxv3_bgp_neighbor_established_connection_count` | counter | Cumulative count of times the session reached ESTABLISHED |
+| `nsxv3_bgp_neighbor_hold_time_seconds` | gauge | Negotiated BGP hold timer |
+| `nsxv3_bgp_neighbor_keep_alive_seconds` | gauge | Negotiated keepalive interval |
 
 ## IP pools (new)
 
