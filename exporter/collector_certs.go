@@ -54,9 +54,7 @@ func collectCertificates(ctx context.Context, client *Nsxv3Client, data *Nsxv3Da
 			expiry := c.NotAfter / 1000.0 // ms -> seconds
 			usedByParts := []string{}
 			for _, u := range c.UsedBy {
-				for _, st := range u.ServiceTypes {
-					usedByParts = append(usedByParts, st)
-				}
+				usedByParts = append(usedByParts, u.ServiceTypes...)
 				if u.NodeID != "" {
 					usedByParts = append(usedByParts, u.NodeID)
 				}

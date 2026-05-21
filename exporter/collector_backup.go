@@ -93,14 +93,12 @@ func summarizeBackupHistory(history []backupStatus) Nsxv3BackupTypeStatus {
 	}
 
 	var consecFail float64
-	var foundSuccess bool
 	for _, o := range ordered {
 		h := history[o.idx]
 		if h.Success {
-			if !foundSuccess {
-				st.LastSuccessTimestamp = h.StartTime / 1000.0
-				foundSuccess = true
-			}
+			// First success walking newest→oldest gives us the most
+			// recent successful timestamp; nothing else to learn.
+			st.LastSuccessTimestamp = h.StartTime / 1000.0
 			break
 		}
 		consecFail++
