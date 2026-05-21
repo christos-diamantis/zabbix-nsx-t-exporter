@@ -26,6 +26,28 @@ const pathCreateSession = "/api/session/create"
 const httpHeaderAcceptJSON = "application/json"
 const httpHarderContentTypeJSON = "application/json"
 
+// NotFoundError is returned by Get() when NSX-T responds with HTTP 404.
+// Collectors check for this with errors.Is(err, ErrNotFound) and treat it
+// as "object exists in inventory but has no status subresource" — common
+// for unrealized BGP neighbors, shadow IP pools from NCP, etc.
+type NotFoundError struct {
+	Path string
+}
+
+func (e *NotFoundError) Error() string {
+	return fmt.Sprintf("GET %s returned 404", e.Path)
+}
+
+// ErrNotFound is a sentinel for errors.Is checks.
+var ErrNotFound = &NotFoundError{}
+
+// Is implements errors.Is matching for the NotFoundError type. Any
+// *NotFoundError matches the ErrNotFound sentinel regardless of Path.
+func (e *NotFoundError) Is(target error) bool {
+	_, ok := target.(*NotFoundError)
+	return ok
+}
+
 // Nsxv3Client represents connection to NSXc3 Manger
 type Nsxv3Client struct {
 	config  nsxv3config.NSXv3Configuration
@@ -33,6 +55,12 @@ type Nsxv3Client struct {
 	cookie  string
 	token   string
 	limiter *rate.Limiter
+	// sem caps the number of concurrent in-flight HTTP requests. Without it
+	// the extended collectors can queue hundreds of goroutines waiting for
+	// rate-limiter tokens; the tail of that queue blows past
+	// RequestsPerSecondTimeout and fails with "context deadline exceeded".
+	// Size matches RequestsPerSecond so the queue is always drainable.
+	sem chan struct{}
 }
 
 // Nsxv3ResourceKind represents Nsxv3Resource type
@@ -78,6 +106,10 @@ func GetClient(c nsxv3config.NSXv3Configuration) Nsxv3Client {
 		MaxIdleConnsPerHost: c.RequestsConnPoolSize,
 	}
 
+	concurrency := c.RequestsPerSecond
+	if concurrency < 1 {
+		concurrency = 10
+	}
 	return Nsxv3Client{
 		config: c,
 		client: http.Client{
@@ -85,6 +117,7 @@ func GetClient(c nsxv3config.NSXv3Configuration) Nsxv3Client {
 			Transport: netTransport,
 		},
 		limiter: rate.NewLimiter(rate.Limit(c.RequestsPerSecond), 1),
+		sem:     make(chan struct{}, concurrency),
 	}
 }
 
@@ -184,6 +217,9 @@ func (c *Nsxv3Client) Get(ctx context.Context, path string, out any) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return &NotFoundError{Path: path}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("GET %s failed with %d", path, resp.StatusCode)
 	}
@@ -196,6 +232,13 @@ func (c *Nsxv3Client) Get(ctx context.Context, path string, out any) error {
 }
 
 func (c *Nsxv3Client) executeRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
+	// Bound concurrent in-flight requests. This prevents goroutine pile-up
+	// at the rate limiter when collectors fan out over hundreds of items.
+	if c.sem != nil {
+		c.sem <- struct{}{}
+		defer func() { <-c.sem }()
+	}
+
 	var cancel context.CancelFunc
 	var childContext context.Context
 

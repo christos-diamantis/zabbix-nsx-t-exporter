@@ -4,6 +4,7 @@ package exporter
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -149,9 +150,24 @@ func collectBGPNeighbors(ctx context.Context, client *Nsxv3Client, data *Nsxv3Da
 					continue
 				}
 				for _, n := range neighbors {
-					path := "/policy/api/v1/infra/tier-0s/" + t0ID + "/locale-services/" + l.ID + "/bgp/neighbors/" + n.ID + "/status"
+					// Some NSX-T policy /status endpoints require the
+					// enforcement_point_path query param to resolve the
+					// realized state. Including it is harmless when it's
+					// not required and fixes 4.2 deployments where it is.
+					path := "/policy/api/v1/infra/tier-0s/" + t0ID +
+						"/locale-services/" + l.ID +
+						"/bgp/neighbors/" + n.ID +
+						"/status?enforcement_point_path=/infra/sites/default/enforcement-points/default"
 					var st bgpNeighborStatusResp
 					if err := client.Get(ctx, path, &st); err != nil {
+						// 404 means the neighbor has no realized status
+						// (e.g. tier-0 not yet attached to an edge cluster).
+						// That is expected for new/unrealized config — don't
+						// spam the log; just skip the neighbor.
+						if errors.Is(err, ErrNotFound) {
+							log.Debugf("BGP neighbor %s/%s/%s has no realized status (404)", t0ID, l.ID, n.ID)
+							continue
+						}
 						log.Warnf("BGP neighbor status failed for %s/%s/%s: %v", t0ID, l.ID, n.ID, err)
 						continue
 					}

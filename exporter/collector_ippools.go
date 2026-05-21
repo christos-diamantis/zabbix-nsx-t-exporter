@@ -4,6 +4,8 @@ package exporter
 
 import (
 	"context"
+	"errors"
+	"net/url"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -75,16 +77,32 @@ func collectIPPools(ctx context.Context, client *Nsxv3Client, data *Nsxv3Data) e
 		log.Warnf("policy IP pool list failed: %v", err)
 	}
 	if len(policyPools) > 0 {
-		results := make([]Nsxv3IPPoolData, len(policyPools))
+		// Pre-filter: pools whose IDs encode NCP/inventory provenance
+		// (NCP IP blocks for k8s networks, vCenter VM/segment shadows)
+		// never expose /ip-pool-usage. Skipping them upfront avoids
+		// hundreds of 404 round-trips on every scrape.
+		results := make([]Nsxv3IPPoolData, 0, len(policyPools))
+		var resultsMu sync.Mutex
 		var wg sync.WaitGroup
-		for i, p := range policyPools {
+		for _, p := range policyPools {
+			if isInventoryShadowPool(p.ID) {
+				continue
+			}
 			wg.Add(1)
-			go func(idx int, id, name string) {
+			go func(id, name string) {
 				defer wg.Done()
+				// PathEscape handles colons and other reserved characters
+				// in NCP-generated pool IDs.
+				usagePath := "/policy/api/v1/infra/ip-pools/" + url.PathEscape(id) + "/ip-pool-usage"
 				var u policyPoolUsage
-				if err := client.Get(ctx, "/policy/api/v1/infra/ip-pools/"+id+"/ip-pool-usage", &u); err != nil {
+				if err := client.Get(ctx, usagePath, &u); err != nil {
+					if errors.Is(err, ErrNotFound) {
+						// Real pool but no usage subresource (rare; still
+						// useful to log at debug for diagnostics).
+						log.Debugf("policy pool %s has no /ip-pool-usage subresource (404)", id)
+						return
+					}
 					log.Warnf("policy pool usage fetch failed for %s: %v", id, err)
-					results[idx] = Nsxv3IPPoolData{ID: id, DisplayName: name, Source: "POLICY"}
 					return
 				}
 				total := u.PoolBlockTotalIDs
@@ -95,11 +113,14 @@ func collectIPPools(ctx context.Context, client *Nsxv3Client, data *Nsxv3Data) e
 					allocated = u.AllocatedIDs
 					free = u.FreeIDs
 				}
-				results[idx] = Nsxv3IPPoolData{
+				entry := Nsxv3IPPoolData{
 					ID: id, DisplayName: name, Source: "POLICY",
 					Total: total, Allocated: allocated, Free: free,
 				}
-			}(i, p.ID, p.DisplayName)
+				resultsMu.Lock()
+				results = append(results, entry)
+				resultsMu.Unlock()
+			}(p.ID, p.DisplayName)
 		}
 		wg.Wait()
 		pools = append(pools, results...)
@@ -107,6 +128,27 @@ func collectIPPools(ctx context.Context, client *Nsxv3Client, data *Nsxv3Data) e
 
 	data.IPPools = pools
 	return nil
+}
+
+// isInventoryShadowPool returns true for policy IP pool IDs that NSX-T
+// auto-generates for vCenter / segment realisation. These pools are
+// inventory metadata, not real allocatable pools, and have no usage data.
+//
+// Observed prefixes from a production NSX-T 4.2 deployment:
+//   - "domain-c<N>:..."    vCenter cluster shadow
+//   - "vm-domain-c<N>:..." vCenter VM-attached shadow
+//   - "vnet_<uuid>_<n>"    Segment-attached shadow
+//
+// Note: "ipp_*" prefixes are not filtered here because users sometimes
+// auto-name real pools that way too. Real ipp_ pools succeed; shadow ones
+// 404 and are silently skipped at debug level.
+func isInventoryShadowPool(id string) bool {
+	for _, prefix := range []string{"domain-c", "vm-domain-c", "vnet_"} {
+		if len(id) >= len(prefix) && id[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
 }
 
 func listMPIPPools(ctx context.Context, client *Nsxv3Client) ([]mpPool, error) {

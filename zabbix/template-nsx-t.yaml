@@ -637,6 +637,8 @@ zabbix_export:
               path: '$.labels.local_node_id'
             - lld_macro: '{#LOCAL_NODE_NAME}'
               path: '$.labels.local_node_name'
+            - lld_macro: '{#LOCAL_IP}'
+              path: '$.labels.local_ip'
             - lld_macro: '{#REMOTE_NODE_ID}'
               path: '$.labels.remote_node_id'
             - lld_macro: '{#REMOTE_IP}'
@@ -645,9 +647,9 @@ zabbix_export:
               path: '$.labels.encap'
           item_prototypes:
             - uuid: bd78c8fa343447abac8d4e3ac350e459
-              name: 'Tunnel {#LOCAL_NODE_NAME} -> {#REMOTE_IP} ({#ENCAP}): Status'
+              name: 'Tunnel {#LOCAL_NODE_NAME} {#LOCAL_IP} -> {#REMOTE_IP} ({#ENCAP}): Status'
               type: DEPENDENT
-              key: 'nsxt.tunnel.status[{#LOCAL_NODE_ID},{#REMOTE_NODE_ID},{#REMOTE_IP},{#ENCAP}]'
+              key: 'nsxt.tunnel.status[{#LOCAL_NODE_ID},{#LOCAL_IP},{#REMOTE_NODE_ID},{#REMOTE_IP},{#ENCAP}]'
               master_item:
                 key: nsxt.get
               delay: '0'
@@ -656,13 +658,13 @@ zabbix_export:
               preprocessing:
                 - type: PROMETHEUS_PATTERN
                   parameters:
-                    - 'nsxv3_tunnel_status{local_node_id="{#LOCAL_NODE_ID}",remote_node_id="{#REMOTE_NODE_ID}",remote_ip="{#REMOTE_IP}",encap="{#ENCAP}"}'
+                    - 'nsxv3_tunnel_status{local_node_id="{#LOCAL_NODE_ID}",local_ip="{#LOCAL_IP}",remote_node_id="{#REMOTE_NODE_ID}",remote_ip="{#REMOTE_IP}",encap="{#ENCAP}"}'
                     - value
                     - ''
               trigger_prototypes:
                 - uuid: 72fd0fd84d7d48baafefbad841140327
-                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.tunnel.status[{#LOCAL_NODE_ID},{#REMOTE_NODE_ID},{#REMOTE_IP},{#ENCAP}])<1'
-                  name: 'NSX-T: Tunnel {#LOCAL_NODE_NAME} -> {#REMOTE_IP} is not UP'
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.tunnel.status[{#LOCAL_NODE_ID},{#LOCAL_IP},{#REMOTE_NODE_ID},{#REMOTE_IP},{#ENCAP}])<1'
+                  name: 'NSX-T: Tunnel {#LOCAL_NODE_NAME} {#LOCAL_IP} -> {#REMOTE_IP} is not UP'
                   priority: HIGH
                   description: 'Operational scenario #5: Geneve/TEP tunnel down.'
 

@@ -4,6 +4,7 @@ package exporter
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -64,6 +65,12 @@ func collectTunnels(ctx context.Context, client *Nsxv3Client, data *Nsxv3Data) e
 			var resp tunnelsResponse
 			path := "/api/v1/transport-nodes/" + tn.ID + "/tunnels"
 			if err := client.Get(ctx, path, &resp); err != nil {
+				// 404 = transport node has no tunnels (newly added, isolated, etc).
+				// Not actionable; debug only.
+				if errors.Is(err, ErrNotFound) {
+					log.Debugf("transport node %s has no /tunnels (404)", tn.ID)
+					return
+				}
 				log.Warnf("tunnel fetch failed for transport node %s: %v", tn.ID, err)
 				return
 			}
@@ -93,15 +100,34 @@ func collectTunnels(ctx context.Context, client *Nsxv3Client, data *Nsxv3Data) e
 	for _, s := range perNode {
 		total += len(s)
 	}
+	// Flatten and deduplicate. NSX may emit the same logical tunnel multiple
+	// times across pages (or the same node may report a tunnel twice with
+	// trivially different metadata). Prometheus rejects the entire /metrics
+	// scrape if a single (name + labels) pair is emitted more than once, so
+	// we collapse here on the full label tuple including local_ip.
+	type key struct {
+		localID, localIP, remoteID, remoteIP, encap string
+	}
+	seen := make(map[key]struct{})
 	data.Tunnels = make([]Nsxv3TunnelData, 0, total)
 	for _, s := range perNode {
-		data.Tunnels = append(data.Tunnels, s...)
+		for _, t := range s {
+			k := key{t.LocalNodeID, t.LocalIP, t.RemoteNodeID, t.RemoteNodeIP, t.Encap}
+			if _, dup := seen[k]; dup {
+				continue
+			}
+			seen[k] = struct{}{}
+			data.Tunnels = append(data.Tunnels, t)
+		}
 	}
 	return nil
 }
 
 func registerTunnelMetrics(m map[string]*prometheus.Desc) {
-	labels := []string{NSXV3_MANAGER_HOSTNAME, "local_node_id", "local_node_name", "remote_node_id", "remote_ip", "encap"}
+	// local_ip is part of the label set because a multi-TEP transport node
+	// emits one tunnel per (source TEP, remote TEP) pair; without local_ip
+	// the metric collides for every pair sharing the same remote TEP.
+	labels := []string{NSXV3_MANAGER_HOSTNAME, "local_node_id", "local_node_name", "local_ip", "remote_node_id", "remote_ip", "encap"}
 	m["TunnelStatus"] = prometheus.NewDesc(
 		prometheus.BuildFQName("nsxv3", "tunnel", "status"),
 		"NSX-T transport node tunnel status - UP=1, DEGRADED=0.5, DOWN=0, UNKNOWN=-1",
@@ -119,12 +145,12 @@ func (e *Exporter) emitTunnelMetrics(host string, data *Nsxv3Data, ch chan<- pro
 		ch <- prometheus.MustNewConstMetric(
 			e.APIMetrics["TunnelStatus"],
 			prometheus.GaugeValue, t.Status,
-			host, t.LocalNodeID, t.LocalNodeName, t.RemoteNodeID, t.RemoteNodeIP, t.Encap,
+			host, t.LocalNodeID, t.LocalNodeName, t.LocalIP, t.RemoteNodeID, t.RemoteNodeIP, t.Encap,
 		)
 		ch <- prometheus.MustNewConstMetric(
 			e.APIMetrics["TunnelBFDDiagnosticCode"],
 			prometheus.GaugeValue, t.BFDDiagCode,
-			host, t.LocalNodeID, t.LocalNodeName, t.RemoteNodeID, t.RemoteNodeIP, t.Encap,
+			host, t.LocalNodeID, t.LocalNodeName, t.LocalIP, t.RemoteNodeID, t.RemoteNodeIP, t.Encap,
 		)
 	}
 }
