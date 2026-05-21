@@ -23,12 +23,35 @@ type trustCertEntry struct {
 	ID           string `json:"id"`
 	DisplayName  string `json:"display_name"`
 	ResourceType string `json:"resource_type"`
-	// NSX returns not_after as epoch milliseconds.
+
+	// Top-level not_after is exposed on some NSX builds but is absent on
+	// 4.2 — there the date lives inside details[].not_after instead.
+	// We accept either and prefer details when both are present, since
+	// details[] reflects what the X.509 chain actually says.
 	NotAfter float64 `json:"not_after"`
-	UsedBy   []struct {
+
+	// Details carries the parsed X.509 metadata for each cert in the PEM
+	// chain. details[0] is the leaf certificate on every deployment we
+	// have observed.
+	Details []struct {
+		NotAfter  float64 `json:"not_after"`  // epoch milliseconds
+		NotBefore float64 `json:"not_before"` // epoch milliseconds
+	} `json:"details"`
+
+	UsedBy []struct {
 		ServiceTypes []string `json:"service_types"`
 		NodeID       string   `json:"node_id"`
 	} `json:"used_by"`
+}
+
+// leafNotAfterMs returns the leaf cert's not_after in epoch milliseconds,
+// falling back to the top-level not_after if details[] is empty. Returns
+// 0 if neither is populated.
+func (c *trustCertEntry) leafNotAfterMs() float64 {
+	if len(c.Details) > 0 && c.Details[0].NotAfter > 0 {
+		return c.Details[0].NotAfter
+	}
+	return c.NotAfter
 }
 
 type trustCertList struct {
@@ -61,7 +84,7 @@ func collectCertificates(ctx context.Context, client *Nsxv3Client, data *Nsxv3Da
 				DisplayName:  c.DisplayName,
 				ResourceType: c.ResourceType,
 				UsedBy:       strings.Join(usedByParts, ","),
-				NotAfterUnix: c.NotAfter / 1000.0, // ms -> seconds
+				NotAfterUnix: c.leafNotAfterMs() / 1000.0, // ms -> seconds
 			})
 		}
 		if resp.Cursor == "" {
