@@ -1,6 +1,8 @@
 module github.com/adaptera/zabbix-nsx-t-exporter
 
-go 1.26
+go 1.25.0
+
+toolchain go1.26.3
 
 require (
 	github.com/caarlos0/env/v6 v6.10.1

@@ -40,10 +40,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m
+      # Install golangci-lint from source so it is compiled with the same
+      # Go version setup-go installed. The prebuilt binary distributed by
+      # golangci-lint-action lags behind Go releases and refuses to lint
+      # code whose go.mod targets a newer Go than the linter was built with.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - name: Run golangci-lint
+        run: golangci-lint run --timeout=5m ./...
 
   zabbix-template:
     name: Validate Zabbix template YAML
