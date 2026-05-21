@@ -1,0 +1,1085 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 9a878bd3f23b47e09a4409359f406a99
+      name: 'Templates/Network devices'
+  host_groups:
+    - uuid: b61473fd21ae4774a751b4773d907877
+      name: 'NSX-T'
+  templates:
+    - uuid: 06086087126f4a948a15d37b78e317c6
+      template: 'NSX-T by Prometheus exporter'
+      name: 'NSX-T by Prometheus exporter'
+      description: |
+        VMware NSX-T 4.2 monitoring via the adaptera/zabbix-nsx-t-exporter (a fork of
+        sapcc/nsx-t-exporter with extended collectors). The template scrapes the
+        exporter's /metrics endpoint once per interval and fans the result out to
+        dependent items and LLD rules.
+
+        Covers the 9 operational scenarios:
+          1. Manager cluster down/degraded
+          2. Edge node down
+          3. Transport node disconnected
+          4. High CPU/Memory on Edge or Manager
+          5. Geneve/TEP tunnel down
+          6. BGP neighbor down
+          7. IP/TEP pool exhaustion
+          8. Certificate expiration
+          9. Backup failure
+
+        Plus Load Balancer service/VS/pool/member status and counters.
+      groups:
+        - name: 'Templates/Network devices'
+      macros:
+        - macro: '{$NSXT.EXPORTER.URL}'
+          value: 'http://localhost:9999'
+          description: 'Base URL of the NSX-T Prometheus exporter (no trailing slash)'
+        - macro: '{$NSXT.EXPORTER.USER}'
+          value: ''
+          description: 'Optional Basic-Auth user for the exporter'
+        - macro: '{$NSXT.EXPORTER.PASSWORD}'
+          value: ''
+          description: 'Optional Basic-Auth password for the exporter'
+        - macro: '{$NSXT.CPU.WARN}'
+          value: '0.8'
+          description: 'CPU pressure ratio for manager/edge warning trigger (1-min load_avg / cpu_cores)'
+        - macro: '{$NSXT.MEM.WARN}'
+          value: '0.9'
+          description: 'Memory usage ratio for manager/edge warning trigger'
+        - macro: '{$NSXT.DISK.WARN}'
+          value: '0.85'
+          description: 'Filesystem usage ratio for warning trigger'
+        - macro: '{$NSXT.IP_POOL.WARN}'
+          value: '0.85'
+          description: 'IP pool usage ratio at which to fire the capacity warning'
+        - macro: '{$NSXT.CERT.WARN.DAYS}'
+          value: '30'
+          description: 'Certificate expiry warning threshold, in days'
+        - macro: '{$NSXT.CERT.CRIT.DAYS}'
+          value: '7'
+          description: 'Certificate expiry critical threshold, in days'
+        - macro: '{$NSXT.BACKUP.STALE.HOURS}'
+          value: '36'
+          description: 'Hours since last successful cluster backup before alerting'
+        - macro: '{$NSXT.NO_FETCH.SECONDS}'
+          value: '600'
+          description: 'Seconds since last successful exporter data fetch before alerting'
+
+      items:
+        - uuid: 92e3f0d7bfc749cf9a08f8883f28bfb5
+          name: 'NSX-T: Get metrics'
+          type: HTTP_AGENT
+          key: 'nsxt.get'
+          url: '{$NSXT.EXPORTER.URL}/metrics'
+          delay: 1m
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          timeout: 30s
+          authtype: BASIC
+          username: '{$NSXT.EXPORTER.USER}'
+          password: '{$NSXT.EXPORTER.PASSWORD}'
+          description: 'Master item that scrapes the NSX-T Prometheus exporter. All other items derive from this.'
+
+        - uuid: 6772ec3cdd1944b8a071bf7e47a82a60
+          name: 'NSX-T: Manager cluster management status'
+          type: DEPENDENT
+          key: nsxt.cluster.management.status
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          description: 'STABLE=1, INITIALIZING=0, UNSTABLE=-1, DEGRADED=-2, UNKNOWN=-3'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_cluster_management_status'
+                - value
+                - ''
+          triggers:
+            - uuid: b580a6abcb9d412589a4f91d9699a1d9
+              expression: 'last(/NSX-T by Prometheus exporter/nsxt.cluster.management.status)<1'
+              name: 'NSX-T: Manager cluster is degraded or down'
+              priority: HIGH
+              description: 'NSX-T management cluster reports a state below STABLE. Operational scenario #1.'
+              manual_close: 'YES'
+
+        - uuid: a0a17cb4ddb14b9eaa23a2f2494d59c8
+          name: 'NSX-T: Manager cluster control status'
+          type: DEPENDENT
+          key: nsxt.cluster.control.status
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          description: 'Control plane health - STABLE=1, NO_CONTROLLERS=0, UNSTABLE=-1, DEGRADED=-2, UNKNOWN=-3'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_cluster_control_status'
+                - value
+                - ''
+          triggers:
+            - uuid: c3a4346226bf4d0f85d51a75f3dd4d06
+              expression: 'last(/NSX-T by Prometheus exporter/nsxt.cluster.control.status)<1'
+              name: 'NSX-T: Manager control plane is degraded'
+              priority: HIGH
+
+        - uuid: 85c021268d354c8ea5351d6115fe6a04
+          name: 'NSX-T: Manager cluster online nodes'
+          type: DEPENDENT
+          key: nsxt.cluster.online_nodes
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_cluster_management_online_nodes'
+                - value
+                - ''
+
+        - uuid: d3ea9f644b6e480594e472c02ba117e8
+          name: 'NSX-T: Manager cluster offline nodes'
+          type: DEPENDENT
+          key: nsxt.cluster.offline_nodes
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_cluster_management_offline_nodes'
+                - value
+                - ''
+          triggers:
+            - uuid: aeabdc7019464864be962ed477e1b008
+              expression: 'last(/NSX-T by Prometheus exporter/nsxt.cluster.offline_nodes)>0'
+              name: 'NSX-T: Manager cluster has {ITEM.LASTVALUE} offline node(s)'
+              priority: HIGH
+
+        - uuid: 6c70bfa706ae4959a92ad3a5a3011f89
+          name: 'NSX-T: Last successful exporter fetch'
+          type: DEPENDENT
+          key: nsxt.exporter.last_fetch
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          units: unixtime
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_cluster_management_last_successful_data_fetch'
+                - value
+                - ''
+          triggers:
+            - uuid: 809476af73d44842abde752aaf81d83e
+              expression: '(now()-last(/NSX-T by Prometheus exporter/nsxt.exporter.last_fetch))>{$NSXT.NO_FETCH.SECONDS}'
+              name: 'NSX-T: Exporter is not collecting fresh data'
+              priority: AVERAGE
+              description: 'The exporter has not successfully scraped NSX-T for {$NSXT.NO_FETCH.SECONDS}s. All other NSX-T alerts may be stale.'
+
+        - uuid: 89cc124e8b074486bacd2e5b6ee1971f
+          name: 'NSX-T: Cluster backup last success timestamp'
+          type: DEPENDENT
+          key: 'nsxt.backup.last_success[cluster]'
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          units: unixtime
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_backup_last_success_timestamp{type="cluster"}'
+                - value
+                - ''
+          triggers:
+            - uuid: 504df48aa426443c854b4ca27f5b3e93
+              expression: '(now()-last(/NSX-T by Prometheus exporter/nsxt.backup.last_success[cluster]))>({$NSXT.BACKUP.STALE.HOURS}*3600)'
+              name: 'NSX-T: Cluster backup has not succeeded for {$NSXT.BACKUP.STALE.HOURS}h'
+              priority: HIGH
+              description: 'Operational scenario #9: backup failure.'
+
+        - uuid: 2a4559446ba2405ca07b6aaefae074be
+          name: 'NSX-T: Cluster backup last attempt success'
+          type: DEPENDENT
+          key: 'nsxt.backup.last_attempt[cluster]'
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          description: '1=success, 0=failure, -1=no attempts recorded'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_backup_last_attempt_success{type="cluster"}'
+                - value
+                - ''
+
+        - uuid: 1bd0cf37addc4f33b6581330d472c6bd
+          name: 'NSX-T: Cluster backup consecutive failures'
+          type: DEPENDENT
+          key: 'nsxt.backup.consecutive_failures[cluster]'
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_backup_consecutive_failures{type="cluster"}'
+                - value
+                - ''
+          triggers:
+            - uuid: 8a8d4ed99c5f4974a8d02125dc359e2e
+              expression: 'last(/NSX-T by Prometheus exporter/nsxt.backup.consecutive_failures[cluster])>=2'
+              name: 'NSX-T: Cluster backup has failed {ITEM.LASTVALUE} times in a row'
+              priority: HIGH
+
+        - uuid: 9a0ef58abd254e19b981519096f36b7c
+          name: 'NSX-T: Node backup consecutive failures'
+          type: DEPENDENT
+          key: 'nsxt.backup.consecutive_failures[node]'
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_backup_consecutive_failures{type="node"}'
+                - value
+                - ''
+
+        - uuid: 48dd3be8bced403d8c2f6cceb5737acf
+          name: 'NSX-T: Inventory backup consecutive failures'
+          type: DEPENDENT
+          key: 'nsxt.backup.consecutive_failures[inventory]'
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_backup_consecutive_failures{type="inventory"}'
+                - value
+                - ''
+
+        - uuid: 2cb967c9486848108a3d3d11f4799796
+          name: 'NSX-T: Transport nodes - up count'
+          type: DEPENDENT
+          key: nsxt.transport_nodes.up
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_transport_nodes_up'
+                - value
+                - ''
+
+        - uuid: a4e814c42871416c8a7b7a0bf2cadd2f
+          name: 'NSX-T: Transport nodes - down count'
+          type: DEPENDENT
+          key: nsxt.transport_nodes.down
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_transport_nodes_down'
+                - value
+                - ''
+
+        - uuid: 86cc43d83e704606b62a3cda5d4151a2
+          name: 'NSX-T: Transport nodes - degraded count'
+          type: DEPENDENT
+          key: nsxt.transport_nodes.degraded
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          value_type: FLOAT
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'nsxv3_transport_nodes_degraded'
+                - value
+                - ''
+
+      discovery_rules:
+
+        # ─── Management nodes ─────────────────────────────────────────────
+        - uuid: ff43b186dbc44d9e9cd04ae56616f685
+          name: 'NSX-T: Management nodes discovery'
+          type: DEPENDENT
+          key: nsxt.management_nodes.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_management_node_connectivity'
+          lld_macro_paths:
+            - lld_macro: '{#NODE_IP}'
+              path: '$.labels.nsxv3_node_ip'
+          item_prototypes:
+            - uuid: c0dd806050e0451caf091f600619105c
+              name: 'Mgr {#NODE_IP}: CPU usage ratio (1-min load_avg / cores)'
+              type: DEPENDENT
+              key: 'nsxt.mgr.cpu_usage_ratio[{#NODE_IP}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_management_node_cpu_usage_ratio{nsxv3_node_ip="{#NODE_IP}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 1b193d6b3c10443bb4b181818907a888
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.mgr.cpu_usage_ratio[{#NODE_IP}])>{$NSXT.CPU.WARN}'
+                  name: 'NSX-T: Manager {#NODE_IP} CPU pressure high ({ITEM.LASTVALUE})'
+                  priority: WARNING
+                  description: 'Operational scenario #4: high CPU on manager.'
+            - uuid: 503ea4e7388e4e0ea0df76be11b389e5
+              name: 'Mgr {#NODE_IP}: Memory used (bytes)'
+              type: DEPENDENT
+              key: 'nsxt.mgr.memory_use[{#NODE_IP}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              units: B
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_management_node_memory_use{nsxv3_node_ip="{#NODE_IP}"}'
+                    - value
+                    - ''
+            - uuid: 552e0b8267dd4a27bfb68128f9dd3a7f
+              name: 'Mgr {#NODE_IP}: Memory total (bytes)'
+              type: DEPENDENT
+              key: 'nsxt.mgr.memory_total[{#NODE_IP}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              units: B
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_management_node_memory_total{nsxv3_node_ip="{#NODE_IP}"}'
+                    - value
+                    - ''
+            - uuid: f4ddf9f642944934b443ea120e990192
+              name: 'Mgr {#NODE_IP}: Memory usage ratio'
+              type: CALCULATED
+              key: 'nsxt.mgr.memory_usage_ratio[{#NODE_IP}]'
+              delay: 1m
+              value_type: FLOAT
+              params: 'last(//nsxt.mgr.memory_use[{#NODE_IP}])/last(//nsxt.mgr.memory_total[{#NODE_IP}])'
+              trigger_prototypes:
+                - uuid: 02e9a415c7c6439795ce6820e3218de0
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.mgr.memory_usage_ratio[{#NODE_IP}])>{$NSXT.MEM.WARN}'
+                  name: 'NSX-T: Manager {#NODE_IP} memory pressure high ({ITEM.LASTVALUE})'
+                  priority: WARNING
+            - uuid: eac7fcd910be4483a6da8676bb4becc6
+              name: 'Mgr {#NODE_IP}: Connectivity'
+              type: DEPENDENT
+              key: 'nsxt.mgr.connectivity[{#NODE_IP}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_management_node_connectivity{nsxv3_node_ip="{#NODE_IP}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: a73c7f05b2304345b2634e5fba4fa602
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.mgr.connectivity[{#NODE_IP}])<1'
+                  name: 'NSX-T: Manager {#NODE_IP} is not CONNECTED'
+                  priority: HIGH
+
+        # ─── Transport nodes ──────────────────────────────────────────────
+        - uuid: 26d980960c624cd1ab2f222ab00b6262
+          name: 'NSX-T: Transport nodes discovery'
+          type: DEPENDENT
+          key: nsxt.transport_nodes.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_transport_node_state'
+          lld_macro_paths:
+            - lld_macro: '{#NODE_ID}'
+              path: '$.labels.nsxv3_node_id'
+          item_prototypes:
+            - uuid: 7063f818fca34298a86e7377443414d1
+              name: 'TN {#NODE_ID}: State'
+              type: DEPENDENT
+              key: 'nsxt.transport_node.state[{#NODE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              description: 'SUCCESS=1, IN_PROGRESS=0, PENDING=-1, FAILED=-2, PARTIAL_SUCCESS=-3, ORPHANED=-4, UNKNOWN=-5'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_transport_node_state{nsxv3_node_id="{#NODE_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 3741b8c5f6284528b134acd4518b7da9
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.transport_node.state[{#NODE_ID}])<1'
+                  name: 'NSX-T: Transport node {#NODE_ID} is not healthy ({ITEM.LASTVALUE})'
+                  priority: HIGH
+                  description: 'Operational scenario #3: transport node disconnected.'
+            - uuid: f6ceee252971474986d6b3d5fe0f078b
+              name: 'TN {#NODE_ID}: Deployment state'
+              type: DEPENDENT
+              key: 'nsxt.transport_node.deployment_state[{#NODE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_transport_node_deployment_state{nsxv3_node_id="{#NODE_ID}"}'
+                    - value
+                    - ''
+
+        # ─── Edge nodes (CPU/mem/disk) ────────────────────────────────────
+        - uuid: cf1bf4fbec32417d9124a52f3a09136f
+          name: 'NSX-T: Edge nodes discovery'
+          type: DEPENDENT
+          key: nsxt.edge_nodes.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_edge_node_cpu_cores'
+          lld_macro_paths:
+            - lld_macro: '{#NODE_ID}'
+              path: '$.labels.nsxv3_node_id'
+            - lld_macro: '{#NODE_NAME}'
+              path: '$.labels.display_name'
+          item_prototypes:
+            - uuid: 7a8245fcd36f43ae962d334aa16a14b5
+              name: 'Edge {#NODE_NAME}: CPU usage ratio'
+              type: DEPENDENT
+              key: 'nsxt.edge.cpu_usage_ratio[{#NODE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_edge_node_cpu_usage_ratio{nsxv3_node_id="{#NODE_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 2ede2f0a076947f7b1ebfdadb31f0803
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.edge.cpu_usage_ratio[{#NODE_ID}])>{$NSXT.CPU.WARN}'
+                  name: 'NSX-T: Edge {#NODE_NAME} CPU pressure high ({ITEM.LASTVALUE})'
+                  priority: WARNING
+                  description: 'Operational scenario #4: high CPU on edge.'
+            - uuid: 84c37d7f2176414080a5cca4c1a7722f
+              name: 'Edge {#NODE_NAME}: Memory usage ratio'
+              type: DEPENDENT
+              key: 'nsxt.edge.memory_usage_ratio[{#NODE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_edge_node_memory_usage_ratio{nsxv3_node_id="{#NODE_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 3e0559dd66014901b88d1736efe1afad
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.edge.memory_usage_ratio[{#NODE_ID}])>{$NSXT.MEM.WARN}'
+                  name: 'NSX-T: Edge {#NODE_NAME} memory pressure high ({ITEM.LASTVALUE})'
+                  priority: WARNING
+            - uuid: e39c173acb534c87b58c995d0ba03f8a
+              name: 'Edge {#NODE_NAME}: Memory used'
+              type: DEPENDENT
+              key: 'nsxt.edge.memory_use[{#NODE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              units: B
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_edge_node_memory_use{nsxv3_node_id="{#NODE_ID}"}'
+                    - value
+                    - ''
+            - uuid: 0ca4109db3194857aaa653a9fc9616e3
+              name: 'Edge {#NODE_NAME}: CPU cores'
+              type: DEPENDENT
+              key: 'nsxt.edge.cpu_cores[{#NODE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_edge_node_cpu_cores{nsxv3_node_id="{#NODE_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: e78bdcfb97c54ccab9d853900f02117a
+                  expression: 'nodata(/NSX-T by Prometheus exporter/nsxt.edge.cpu_cores[{#NODE_ID}],5m)=1'
+                  name: 'NSX-T: Edge {#NODE_NAME} has no status (likely down)'
+                  priority: HIGH
+                  description: 'Operational scenario #2: edge node down. Triggered when no metrics arrive for 5m.'
+            - uuid: 81d0d701d8ff41a7b52bd17d34ed982b
+              name: 'Edge {#NODE_NAME}: Uptime'
+              type: DEPENDENT
+              key: 'nsxt.edge.uptime[{#NODE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              units: s
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_edge_node_uptime_seconds{nsxv3_node_id="{#NODE_ID}"}'
+                    - value
+                    - ''
+
+        # ─── Edge filesystems ─────────────────────────────────────────────
+        - uuid: 8fa1a95b7e8749d582d513a928aa848b
+          name: 'NSX-T: Edge filesystems discovery'
+          type: DEPENDENT
+          key: nsxt.edge_filesystems.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_edge_node_storage_usage_ratio'
+          lld_macro_paths:
+            - lld_macro: '{#NODE_ID}'
+              path: '$.labels.nsxv3_node_id'
+            - lld_macro: '{#NODE_NAME}'
+              path: '$.labels.display_name'
+            - lld_macro: '{#FS}'
+              path: '$.labels.filesystem'
+          item_prototypes:
+            - uuid: 27faa6e2c8054d6fb99b28304cce841c
+              name: 'Edge {#NODE_NAME}: FS {#FS} usage ratio'
+              type: DEPENDENT
+              key: 'nsxt.edge.fs.usage_ratio[{#NODE_ID},{#FS}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_edge_node_storage_usage_ratio{nsxv3_node_id="{#NODE_ID}",filesystem="{#FS}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 3a5465c8705343059d25eb6e81859d71
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.edge.fs.usage_ratio[{#NODE_ID},{#FS}])>{$NSXT.DISK.WARN}'
+                  name: 'NSX-T: Edge {#NODE_NAME} FS {#FS} is filling up ({ITEM.LASTVALUE})'
+                  priority: WARNING
+
+        # ─── Tunnels ──────────────────────────────────────────────────────
+        - uuid: c993a37527294d10989da8be5c597d6a
+          name: 'NSX-T: Tunnels discovery'
+          type: DEPENDENT
+          key: nsxt.tunnels.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_tunnel_status'
+          lld_macro_paths:
+            - lld_macro: '{#LOCAL_NODE_ID}'
+              path: '$.labels.local_node_id'
+            - lld_macro: '{#LOCAL_NODE_NAME}'
+              path: '$.labels.local_node_name'
+            - lld_macro: '{#REMOTE_NODE_ID}'
+              path: '$.labels.remote_node_id'
+            - lld_macro: '{#REMOTE_IP}'
+              path: '$.labels.remote_ip'
+            - lld_macro: '{#ENCAP}'
+              path: '$.labels.encap'
+          item_prototypes:
+            - uuid: bd78c8fa343447abac8d4e3ac350e459
+              name: 'Tunnel {#LOCAL_NODE_NAME} -> {#REMOTE_IP} ({#ENCAP}): Status'
+              type: DEPENDENT
+              key: 'nsxt.tunnel.status[{#LOCAL_NODE_ID},{#REMOTE_NODE_ID},{#REMOTE_IP},{#ENCAP}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              description: 'UP=1, DEGRADED=0.5, DOWN=0, UNKNOWN=-1'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_tunnel_status{local_node_id="{#LOCAL_NODE_ID}",remote_node_id="{#REMOTE_NODE_ID}",remote_ip="{#REMOTE_IP}",encap="{#ENCAP}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 72fd0fd84d7d48baafefbad841140327
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.tunnel.status[{#LOCAL_NODE_ID},{#REMOTE_NODE_ID},{#REMOTE_IP},{#ENCAP}])<1'
+                  name: 'NSX-T: Tunnel {#LOCAL_NODE_NAME} -> {#REMOTE_IP} is not UP'
+                  priority: HIGH
+                  description: 'Operational scenario #5: Geneve/TEP tunnel down.'
+
+        # ─── BGP neighbors ────────────────────────────────────────────────
+        - uuid: c1c6dee9ae5d4c38b5ae5cf6eac35e66
+          name: 'NSX-T: BGP neighbors discovery'
+          type: DEPENDENT
+          key: nsxt.bgp_neighbors.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_bgp_neighbor_status'
+          lld_macro_paths:
+            - lld_macro: '{#TIER0}'
+              path: '$.labels.tier0_name'
+            - lld_macro: '{#TIER0_ID}'
+              path: '$.labels.tier0_id'
+            - lld_macro: '{#LS_ID}'
+              path: '$.labels.locale_service_id'
+            - lld_macro: '{#NEIGHBOR_ID}'
+              path: '$.labels.neighbor_id'
+            - lld_macro: '{#NEIGHBOR_IP}'
+              path: '$.labels.neighbor_address'
+            - lld_macro: '{#REMOTE_AS}'
+              path: '$.labels.remote_as'
+            - lld_macro: '{#EDGE_ID}'
+              path: '$.labels.edge_node_id'
+          item_prototypes:
+            - uuid: a3209248b36d43a98b299f2d6bd4b74e
+              name: 'BGP {#TIER0}/{#NEIGHBOR_IP} (AS {#REMOTE_AS}) on edge {#EDGE_ID}: Status'
+              type: DEPENDENT
+              key: 'nsxt.bgp.status[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_ID},{#EDGE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              description: 'ESTABLISHED=1, OPEN_CONFIRM=0.8, OPEN_SENT=0.6, ACTIVE=0.4, CONNECT=0.2, IDLE=0, INVALID/UNKNOWN<0'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_bgp_neighbor_status{tier0_id="{#TIER0_ID}",locale_service_id="{#LS_ID}",neighbor_id="{#NEIGHBOR_ID}",edge_node_id="{#EDGE_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: de242abc866847778989590f2a39e154
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.bgp.status[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_ID},{#EDGE_ID}])<1'
+                  name: 'NSX-T: BGP {#TIER0}/{#NEIGHBOR_IP} on edge {#EDGE_ID} not ESTABLISHED'
+                  priority: HIGH
+                  description: 'Operational scenario #6: BGP neighbor down.'
+            - uuid: 99ffbc8a1b84494693c22da1cee95dcf
+              name: 'BGP {#TIER0}/{#NEIGHBOR_IP} on edge {#EDGE_ID}: Received prefixes'
+              type: DEPENDENT
+              key: 'nsxt.bgp.in_prefixes[{#TIER0_ID},{#LS_ID},{#NEIGHBOR_ID},{#EDGE_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_bgp_neighbor_in_prefix_count{tier0_id="{#TIER0_ID}",locale_service_id="{#LS_ID}",neighbor_id="{#NEIGHBOR_ID}",edge_node_id="{#EDGE_ID}"}'
+                    - value
+                    - ''
+
+        # ─── IP pools ─────────────────────────────────────────────────────
+        - uuid: f0dafb0153ec4be2a6021d89ca45afbb
+          name: 'NSX-T: IP pools discovery'
+          type: DEPENDENT
+          key: nsxt.ip_pools.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_ip_pool_usage_ratio'
+          lld_macro_paths:
+            - lld_macro: '{#POOL_ID}'
+              path: '$.labels.pool_id'
+            - lld_macro: '{#POOL_NAME}'
+              path: '$.labels.pool_name'
+            - lld_macro: '{#SOURCE}'
+              path: '$.labels.source'
+          item_prototypes:
+            - uuid: 3abf8bde2c7e4cf59fe870f0a19b123d
+              name: 'IP pool {#POOL_NAME} ({#SOURCE}): Usage ratio'
+              type: DEPENDENT
+              key: 'nsxt.ip_pool.usage_ratio[{#POOL_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_ip_pool_usage_ratio{pool_id="{#POOL_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 13db06fb38b7448dacd35385911e6462
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.ip_pool.usage_ratio[{#POOL_ID}])>{$NSXT.IP_POOL.WARN}'
+                  name: 'NSX-T: IP pool {#POOL_NAME} ({#SOURCE}) is {ITEM.LASTVALUE} full'
+                  priority: WARNING
+                  description: 'Operational scenario #7: IP/TEP pool exhaustion.'
+            - uuid: f00595160f8a445caba0003e927925f8
+              name: 'IP pool {#POOL_NAME} ({#SOURCE}): Allocated'
+              type: DEPENDENT
+              key: 'nsxt.ip_pool.allocated[{#POOL_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_ip_pool_allocated{pool_id="{#POOL_ID}"}'
+                    - value
+                    - ''
+            - uuid: b3ce4137c17f44f2abb756eebed21e4d
+              name: 'IP pool {#POOL_NAME} ({#SOURCE}): Total'
+              type: DEPENDENT
+              key: 'nsxt.ip_pool.total[{#POOL_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_ip_pool_total{pool_id="{#POOL_ID}"}'
+                    - value
+                    - ''
+
+        # ─── Certificates ─────────────────────────────────────────────────
+        - uuid: e5f415109683457f986133facc1041cf
+          name: 'NSX-T: Certificates discovery'
+          type: DEPENDENT
+          key: nsxt.certificates.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_certificate_seconds_to_expiry'
+          lld_macro_paths:
+            - lld_macro: '{#CERT_ID}'
+              path: '$.labels.cert_id'
+            - lld_macro: '{#CERT_NAME}'
+              path: '$.labels.cert_name'
+            - lld_macro: '{#USED_BY}'
+              path: '$.labels.used_by'
+          item_prototypes:
+            - uuid: 46f4f446c34a43d2b5430291b994a932
+              name: 'Cert {#CERT_NAME}: Seconds to expiry'
+              type: DEPENDENT
+              key: 'nsxt.cert.seconds_to_expiry[{#CERT_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              units: s
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_certificate_seconds_to_expiry{cert_id="{#CERT_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 5051dc1c1cbc4d1c908c78c0b7986fc7
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.cert.seconds_to_expiry[{#CERT_ID}])<({$NSXT.CERT.CRIT.DAYS}*86400)'
+                  name: 'NSX-T: Certificate {#CERT_NAME} expires in less than {$NSXT.CERT.CRIT.DAYS} days'
+                  priority: HIGH
+                  description: 'Operational scenario #8: certificate expiration (critical).'
+                - uuid: 34bbb03918c34c019bb8093397a8f09d
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.cert.seconds_to_expiry[{#CERT_ID}])<({$NSXT.CERT.WARN.DAYS}*86400) and last(/NSX-T by Prometheus exporter/nsxt.cert.seconds_to_expiry[{#CERT_ID}])>=({$NSXT.CERT.CRIT.DAYS}*86400)'
+                  name: 'NSX-T: Certificate {#CERT_NAME} expires in less than {$NSXT.CERT.WARN.DAYS} days'
+                  priority: WARNING
+
+        # ─── LB services ──────────────────────────────────────────────────
+        - uuid: 5d70d34e14d8480daa32d89c6993f218
+          name: 'NSX-T: LB services discovery'
+          type: DEPENDENT
+          key: nsxt.lb.services.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_lb_service_status'
+          lld_macro_paths:
+            - lld_macro: '{#LB_ID}'
+              path: '$.labels.lb_service_id'
+            - lld_macro: '{#LB_NAME}'
+              path: '$.labels.lb_service_name'
+          item_prototypes:
+            - uuid: c1421635f36a4f13999fec5228038e86
+              name: 'LB {#LB_NAME}: Service status'
+              type: DEPENDENT
+              key: 'nsxt.lb.service.status[{#LB_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_service_status{lb_service_id="{#LB_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 8f95db06d6e440a694362348eb7a2e2c
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.lb.service.status[{#LB_ID}])<1'
+                  name: 'NSX-T: LB service {#LB_NAME} is not UP'
+                  priority: HIGH
+            - uuid: 9f8f99cdeb284a18ab2adc79ad39069c
+              name: 'LB {#LB_NAME}: Current sessions'
+              type: DEPENDENT
+              key: 'nsxt.lb.service.current_sessions[{#LB_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_service_current_sessions{lb_service_id="{#LB_ID}"}'
+                    - value
+                    - ''
+
+        # ─── LB virtual servers ───────────────────────────────────────────
+        - uuid: d008a801673c4608974ef296d65965d6
+          name: 'NSX-T: LB virtual servers discovery'
+          type: DEPENDENT
+          key: nsxt.lb.vs.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_lb_virtual_server_status'
+          lld_macro_paths:
+            - lld_macro: '{#VS_ID}'
+              path: '$.labels.virtual_server_id'
+            - lld_macro: '{#VS_NAME}'
+              path: '$.labels.virtual_server_name'
+            - lld_macro: '{#LB_ID}'
+              path: '$.labels.lb_service_id'
+          item_prototypes:
+            - uuid: 8c6cf8b003254008a822cdd7f4080071
+              name: 'VS {#VS_NAME}: Status'
+              type: DEPENDENT
+              key: 'nsxt.lb.vs.status[{#VS_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_virtual_server_status{virtual_server_id="{#VS_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: d975c316333e433aa7a174303e33733b
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.lb.vs.status[{#VS_ID}])<1'
+                  name: 'NSX-T: Virtual server {#VS_NAME} is not UP'
+                  priority: HIGH
+            - uuid: 8c56c713299842bea26318c81b2833a7
+              name: 'VS {#VS_NAME}: Current sessions'
+              type: DEPENDENT
+              key: 'nsxt.lb.vs.current_sessions[{#VS_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_virtual_server_current_sessions{virtual_server_id="{#VS_ID}"}'
+                    - value
+                    - ''
+            - uuid: df19b6fd91c9496a836ce345dc1e6647
+              name: 'VS {#VS_NAME}: Bytes in (counter)'
+              type: DEPENDENT
+              key: 'nsxt.lb.vs.bytes_in[{#VS_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              units: B
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_virtual_server_bytes_in_total{virtual_server_id="{#VS_ID}"}'
+                    - value
+                    - ''
+                - type: CHANGE_PER_SECOND
+            - uuid: 951e4a167639418580cec21ef244979a
+              name: 'VS {#VS_NAME}: Bytes out (counter)'
+              type: DEPENDENT
+              key: 'nsxt.lb.vs.bytes_out[{#VS_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              units: B
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_virtual_server_bytes_out_total{virtual_server_id="{#VS_ID}"}'
+                    - value
+                    - ''
+                - type: CHANGE_PER_SECOND
+
+        # ─── LB pools ─────────────────────────────────────────────────────
+        - uuid: 5d1e2dff4b8048ab9460a34542a48038
+          name: 'NSX-T: LB pools discovery'
+          type: DEPENDENT
+          key: nsxt.lb.pools.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_lb_pool_status'
+          lld_macro_paths:
+            - lld_macro: '{#POOL_ID}'
+              path: '$.labels.pool_id'
+            - lld_macro: '{#POOL_NAME}'
+              path: '$.labels.pool_name'
+          item_prototypes:
+            - uuid: 8340811df203447cbeffb1eb337e0c9d
+              name: 'Pool {#POOL_NAME}: Status'
+              type: DEPENDENT
+              key: 'nsxt.lb.pool.status[{#POOL_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_pool_status{pool_id="{#POOL_ID}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 48c35576fa30431c8c7ba1b230160499
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.lb.pool.status[{#POOL_ID}])<1'
+                  name: 'NSX-T: Pool {#POOL_NAME} is not UP'
+                  priority: HIGH
+            - uuid: 7f274120d61e4fd48c0af63c21b22778
+              name: 'Pool {#POOL_NAME}: Current sessions'
+              type: DEPENDENT
+              key: 'nsxt.lb.pool.current_sessions[{#POOL_ID}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_pool_current_sessions{pool_id="{#POOL_ID}"}'
+                    - value
+                    - ''
+
+        # ─── LB pool members ──────────────────────────────────────────────
+        - uuid: 56259d7f4d2349e2b2ddfc24b1620403
+          name: 'NSX-T: LB pool members discovery'
+          type: DEPENDENT
+          key: nsxt.lb.members.discovery
+          master_item:
+            key: nsxt.get
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - 'nsxv3_lb_pool_member_status'
+          lld_macro_paths:
+            - lld_macro: '{#POOL_ID}'
+              path: '$.labels.pool_id'
+            - lld_macro: '{#POOL_NAME}'
+              path: '$.labels.pool_name'
+            - lld_macro: '{#MEMBER_IP}'
+              path: '$.labels.member_ip'
+            - lld_macro: '{#MEMBER_PORT}'
+              path: '$.labels.member_port'
+          item_prototypes:
+            - uuid: f5e123607cb94f94bc978229f64562c4
+              name: 'Member {#MEMBER_IP}:{#MEMBER_PORT} ({#POOL_NAME}): Status'
+              type: DEPENDENT
+              key: 'nsxt.lb.member.status[{#POOL_ID},{#MEMBER_IP},{#MEMBER_PORT}]'
+              master_item:
+                key: nsxt.get
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_pool_member_status{pool_id="{#POOL_ID}",member_ip="{#MEMBER_IP}",member_port="{#MEMBER_PORT}"}'
+                    - value
+                    - ''
+              trigger_prototypes:
+                - uuid: 9f8f99cdeb284a18ab2adc79ad39069d
+                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.lb.member.status[{#POOL_ID},{#MEMBER_IP},{#MEMBER_PORT}])<1'
+                  name: 'NSX-T: Pool member {#MEMBER_IP}:{#MEMBER_PORT} of {#POOL_NAME} is not UP'
+                  priority: AVERAGE

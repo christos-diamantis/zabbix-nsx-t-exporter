@@ -21,6 +21,16 @@ type NSXv3Configuration struct {
 	RequestTimeout           int    `env:"NSXV3_REQUEST_TIMEOUT_SECONDS" envDefault:"0"`
 	SuppressSslWarnings      bool   `env:"NSXV3_SUPPRESS_SSL_WARNINGS" envDefault:"false"`
 	ScrapScheduleSeconds     int    `env:"SCRAP_SCHEDULE_SECONDS" envDefault:"0"`
+
+	// Extensions: opt-in flags for the heavier collectors added by this fork.
+	// All default to true; set to "false" to skip a collector.
+	IncludeBGP       bool `env:"NSXV3_INCLUDE_BGP" envDefault:"true"`
+	IncludeLB        bool `env:"NSXV3_INCLUDE_LB" envDefault:"true"`
+	IncludeTunnels   bool `env:"NSXV3_INCLUDE_TUNNELS" envDefault:"true"`
+	IncludeCerts     bool `env:"NSXV3_INCLUDE_CERTIFICATES" envDefault:"true"`
+	IncludeBackup    bool `env:"NSXV3_INCLUDE_BACKUP" envDefault:"true"`
+	IncludeIPPools   bool `env:"NSXV3_INCLUDE_IP_POOLS" envDefault:"true"`
+	IncludeEdgeStats bool `env:"NSXV3_INCLUDE_EDGE_STATS" envDefault:"true"`
 }
 
 // Init Loads NSXv3Configuration value from the OS environment variables and validate them

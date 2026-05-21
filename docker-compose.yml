@@ -1,26 +1,35 @@
-version: "2"
-
 services:
-  nsxv3-exporter:
-    tty: true
-    stdin_open: true
-    expose:
-      - 9191
+  nsx-t-exporter:
+    image: zabbix-nsx-t-exporter:latest
+    build: .
+    container_name: nsx-t-exporter
+    restart: unless-stopped
     ports:
-      - 9191:9191
-    image: nsx-exporter:latest 
+      - "9999:9999"
     environment:
-      - NSXV3_LOGIN_HOST=nsx-floatin-ip.corp.local
-      - NSXV3_LOGIN_PORT=443
-      - NSXV3_LOGIN_USER=admin
-      - NSXV3_LOGIN_PASSWORD=VMwarensbu_1
-      - NSXV3_REQUESTS_PER_SECOND=<NSX-T Manager Node requests per second [<100]>
-      - NSXV3_REQUESTS_PER_SECOND_TIMEOUT=<NSX-T Manager Node requests per second timeout>
-      - NSXV3_CONNECTION_POOL_SIZE=<NSX-T Manager Node connection pool size>
-      - NSXV3_REQUEST_TIMEOUT_SECONDS=<NSX-T Manager request timeout in seconds>
-      - NSXV3_SUPPRESS_SSL_WARNINGS=true
-      - SCRAP_PORT=9191
-      - SCRAP_SCHEDULE_SECONDS=<The exporter scrap NSX-T Manager schedule in seconds>
-      - LOG_LEVEL=<NSX-T Exporter logging level.>
+      # Required
+      NSXV3_LOGIN_HOST: nsxt-mgr.example.com
+      NSXV3_LOGIN_USER: zabbix-readonly
+      NSXV3_LOGIN_PASSWORD: changeme
 
+      # Optional - tune to your environment
+      NSXV3_LOGIN_PORT: "443"
+      NSXV3_SUPPRESS_SSL_WARNINGS: "false"
+      NSXV3_REQUESTS_PER_SECOND: "10"
+      NSXV3_REQUEST_TIMEOUT_SECONDS: "30"
+      SCRAP_PORT: "9999"
+      SCRAP_SCHEDULE_SECONDS: "60"
 
+      # Extended collectors — set to "false" to skip in large fabrics
+      NSXV3_INCLUDE_BGP: "true"
+      NSXV3_INCLUDE_LB: "true"
+      NSXV3_INCLUDE_TUNNELS: "true"
+      NSXV3_INCLUDE_CERTIFICATES: "true"
+      NSXV3_INCLUDE_BACKUP: "true"
+      NSXV3_INCLUDE_IP_POOLS: "true"
+      NSXV3_INCLUDE_EDGE_STATS: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:9999/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

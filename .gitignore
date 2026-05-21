@@ -1,7 +1,15 @@
-bin
-.vscode
+bin/
+build/
+.vscode/
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
 nsx-t-exporter
+
+# OS / editor cruft
+.DS_Store
+*.swp
+
+# Claude Code session-local settings
+.claude/

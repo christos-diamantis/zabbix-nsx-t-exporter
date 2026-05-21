@@ -9,8 +9,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/sapcc/nsx-t-exporter/config"
-	"github.com/sapcc/nsx-t-exporter/exporter"
+	"github.com/adaptera/zabbix-nsx-t-exporter/config"
+	"github.com/adaptera/zabbix-nsx-t-exporter/exporter"
 
 	"github.com/fatih/structs"
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,7 +25,7 @@ var (
 	<head><title>NSX-T Exporter</title></head>
 	<body>
 		<h1>NSX-T Prometheus Metrics Exporter</h1>
-		<p>For more information, visit <a href="https://github.com/sapcc/nsxv3-exporter">GitHub</a></p>
+		<p>For more information, visit <a href="https://github.com/adaptera/zabbix-nsx-t-exporter">GitHub</a></p>
 		<p><a href="/metrics">Metrics</a></p>
 	</body>
 </html>`

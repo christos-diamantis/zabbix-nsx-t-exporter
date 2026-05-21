@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	nsxv3config "github.com/sapcc/nsx-t-exporter/config"
+	nsxv3config "github.com/adaptera/zabbix-nsx-t-exporter/config"
 
 	log "github.com/sirupsen/logrus"
 
@@ -159,6 +159,40 @@ func (c *Nsxv3Client) updateEndpointStatus(ctx context.Context, status *Nsxv3Res
 	}
 
 	status.err = json.Unmarshal(body, &status.state)
+}
+
+// Get performs a synchronous authenticated GET against the NSX-T manager and
+// unmarshals the JSON response into out. Used by collectors that walk
+// hierarchies (BGP, LB) which do not fit the wave-based dispatch pattern.
+func (c *Nsxv3Client) Get(ctx context.Context, path string, out any) error {
+	if err := c.login(ctx, false); err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("https://%s%s", c.config.LoginHost, path), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", httpHeaderAcceptJSON)
+	req.Header.Set("Content-Type", httpHarderContentTypeJSON)
+	req.Header.Set("Cookie", c.cookie)
+	req.Header.Set("X-XSRF-TOKEN", c.token)
+
+	resp, err := c.executeRequest(ctx, req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("GET %s failed with %d", path, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, out)
 }
 
 func (c *Nsxv3Client) executeRequest(ctx context.Context, req *http.Request) (*http.Response, error) {

@@ -509,11 +509,57 @@ func (e *Exporter) gather(ctx context.Context, data *Nsxv3Data) error {
 		return err
 	}
 
+	// Extended collectors (this fork). Each is best-effort: a failure logs
+	// but does not abort the whole scrape, so existing metrics stay fresh.
+	client := GetClient(e.NSXv3Configuration)
+	e.runExtendedCollectors(ctx, &client, data)
+
 	data.ExtractedActualValues = true
 	data.LastSuccessfulDataFetch = float64(time.Now().Unix())
 
 	log.Info("Asynchronous data collection completed")
 	return nil
+}
+
+// runExtendedCollectors invokes the fork-added collectors that walk NSX-T
+// hierarchies (BGP, LB, edges) outside the wave-based dispatch pattern.
+// Each collector is wrapped so an individual failure cannot kill the scrape.
+func (e *Exporter) runExtendedCollectors(ctx context.Context, client *Nsxv3Client, data *Nsxv3Data) {
+	if e.IncludeEdgeStats {
+		if err := collectEdgeNodes(ctx, client, data); err != nil {
+			log.Errorf("edge node collector failed: %v", err)
+		}
+	}
+	if e.IncludeTunnels {
+		if err := collectTunnels(ctx, client, data); err != nil {
+			log.Errorf("tunnel collector failed: %v", err)
+		}
+	}
+	if e.IncludeBGP {
+		if err := collectBGPNeighbors(ctx, client, data); err != nil {
+			log.Errorf("BGP collector failed: %v", err)
+		}
+	}
+	if e.IncludeIPPools {
+		if err := collectIPPools(ctx, client, data); err != nil {
+			log.Errorf("IP pool collector failed: %v", err)
+		}
+	}
+	if e.IncludeCerts {
+		if err := collectCertificates(ctx, client, data); err != nil {
+			log.Errorf("certificate collector failed: %v", err)
+		}
+	}
+	if e.IncludeBackup {
+		if err := collectBackup(ctx, client, data); err != nil {
+			log.Errorf("backup collector failed: %v", err)
+		}
+	}
+	if e.IncludeLB {
+		if err := collectLB(ctx, client, data); err != nil {
+			log.Errorf("LB collector failed: %v", err)
+		}
+	}
 }
 
 func (e *Exporter) updateData(ctx context.Context, data *Nsxv3Data, client *Nsxv3Client, status *Nsxv3Resource, ch chan error) {

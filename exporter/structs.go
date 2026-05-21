@@ -6,7 +6,7 @@ package exporter
 import (
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/sapcc/nsx-t-exporter/config"
+	"github.com/adaptera/zabbix-nsx-t-exporter/config"
 )
 
 // Exporter is used to store Metrics data and embeds the config struct.
@@ -116,4 +116,14 @@ type Nsxv3Data struct {
 	LastSuccessfulDataFetch      float64
 	LogicalPortOperationalStates []Nsxv3LogicalPortOperationalStateData
 	Scheduler                    Nsxv3ActivityFrameworkSchedulerData
+
+	// Extensions added by this fork (see collector_*.go). Fields are added
+	// as each collector is built to keep the build green between steps.
+	EdgeNodes    []Nsxv3EdgeNodeData
+	Tunnels      []Nsxv3TunnelData
+	BGPNeighbors []Nsxv3BGPNeighborData
+	IPPools      []Nsxv3IPPoolData
+	Certificates []Nsxv3CertificateData
+	Backup       Nsxv3BackupData
+	LBServices   []Nsxv3LBServiceData
 }

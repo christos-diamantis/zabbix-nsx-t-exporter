@@ -1,4 +1,4 @@
-module github.com/sapcc/nsx-t-exporter
+module github.com/adaptera/zabbix-nsx-t-exporter
 
 go 1.26
 

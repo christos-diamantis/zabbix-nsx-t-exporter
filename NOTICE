@@ -1,0 +1,16 @@
+zabbix-nsx-t-exporter
+Copyright 2026 Adaptera
+
+This product is a derivative work of nsx-t-exporter, originally developed
+by SAP SE and the SAP Converged Cloud team.
+
+  Original project: https://github.com/sapcc/nsx-t-exporter
+  Original copyright: 2024-2025 SAP SE or an SAP affiliate company
+  Original license: Apache License 2.0
+
+Files inherited from the upstream project retain their original
+SPDX-FileCopyrightText headers. Files added or substantially rewritten
+in this fork are marked with this fork's copyright header.
+
+Both the original and this fork are licensed under the Apache License,
+Version 2.0. See the LICENSE file for the full text.

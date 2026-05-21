@@ -71,6 +71,12 @@ func GetMetricsDescription() map[string]*prometheus.Desc {
 		[]string{NSXV3_MANAGER_HOSTNAME, NSXV3_NODE_IP, "minutes"}, nil,
 	)
 
+	APIMetrics["ManagementNodeCPUUsageRatio"] = prometheus.NewDesc(
+		prometheus.BuildFQName("nsxv3", "management_node", "cpu_usage_ratio"),
+		"NSX-T management node 1-minute load average normalized by CPU cores (load_average[0]/cpu_cores). >0.8 = sustained pressure, >1.0 = oversubscribed",
+		[]string{NSXV3_MANAGER_HOSTNAME, NSXV3_NODE_IP}, nil,
+	)
+
 	APIMetrics["ManagementNodeMemoryUse"] = prometheus.NewDesc(
 		prometheus.BuildFQName("nsxv3", "management_node", "memory_use"),
 		"NSX-T management node memory use",
@@ -227,6 +233,15 @@ func GetMetricsDescription() map[string]*prometheus.Desc {
 		[]string{NSXV3_MANAGER_HOSTNAME}, nil,
 	)
 
+	// Extended descriptors registered by per-collector files.
+	registerEdgeNodeMetrics(APIMetrics)
+	registerTunnelMetrics(APIMetrics)
+	registerBGPMetrics(APIMetrics)
+	registerIPPoolMetrics(APIMetrics)
+	registerCertificateMetrics(APIMetrics)
+	registerBackupMetrics(APIMetrics)
+	registerLBMetrics(APIMetrics)
+
 	return APIMetrics
 }
 
@@ -331,6 +346,16 @@ func (e *Exporter) processMetrics(data *Nsxv3Data, ch chan<- prometheus.Metric) 
 	for _, element := range data.LogicalPortOperationalStates {
 		e.processLogicalPortOperationalStateMetrics(data.ClusterHost, &element, ch)
 	}
+
+	// Extended emit functions defined in per-collector files.
+	e.emitEdgeNodeMetrics(data.ClusterHost, data, ch)
+	e.emitTunnelMetrics(data.ClusterHost, data, ch)
+	e.emitBGPMetrics(data.ClusterHost, data, ch)
+	e.emitIPPoolMetrics(data.ClusterHost, data, ch)
+	e.emitCertificateMetrics(data.ClusterHost, data, ch)
+	e.emitBackupMetrics(data.ClusterHost, data, ch)
+	e.emitLBMetrics(data.ClusterHost, data, ch)
+
 	return nil
 }
 
@@ -365,6 +390,16 @@ func (e *Exporter) processManagementNodeMetrics(host string, data *Nsxv3Manageme
 		prometheus.GaugeValue,
 		data.LoadAverage[2],
 		host, data.IP, "15") // 15 minutes
+
+	cpuUsageRatio := 0.0
+	if data.CPUCores > 0 {
+		cpuUsageRatio = data.LoadAverage[0] / data.CPUCores
+	}
+	ch <- prometheus.MustNewConstMetric(
+		e.APIMetrics["ManagementNodeCPUUsageRatio"],
+		prometheus.GaugeValue,
+		cpuUsageRatio,
+		host, data.IP)
 
 	ch <- prometheus.MustNewConstMetric(
 		e.APIMetrics["ManagementNodeMemoryUse"],
