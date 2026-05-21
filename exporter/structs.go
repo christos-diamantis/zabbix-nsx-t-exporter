@@ -78,6 +78,7 @@ type Nsxv3ControlNodeData struct {
 // Nsxv3TransportNodeData represent the current snapshot of metrics for a single transport node
 type Nsxv3TransportNodeData struct {
 	ID              string
+	DisplayName     string
 	State           float64
 	DeploymentState float64
 }

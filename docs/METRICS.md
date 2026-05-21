@@ -27,13 +27,19 @@ distinguish them.
 | `nsxv3_management_node_swap_use` / `_total` | gauge | host, node_ip | Swap in bytes |
 | `nsxv3_management_node_storage_use` / `_total` | gauge | host, node_ip, filesystem | Storage in bytes |
 
-## Transport node (inherited)
+## Transport node (inherited; this fork adds `display_name`)
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `nsxv3_transport_node_state` | gauge | host, node_id | Realisation state |
-| `nsxv3_transport_node_deployment_state` | gauge | host, node_id | Deployment state |
+| `nsxv3_transport_node_state` | gauge | host, node_id, **display_name** | Realisation state |
+| `nsxv3_transport_node_deployment_state` | gauge | host, node_id, **display_name** | Deployment state |
 | `nsxv3_transport_nodes_{up,down,degraded,unknown}` | gauge | host | Aggregate counts |
+
+The `display_name` label is populated by enriching the upstream's
+`/api/v1/transport-nodes/state` response with the inventory list — one
+extra paginated GET per scrape against `/api/v1/transport-nodes`, then a
+local id→name lookup. Empty string if the node is in state but not yet
+in inventory (rare; transient during provisioning).
 
 ## Edge node (new in this fork)
 
@@ -103,7 +109,7 @@ Labels: `cert_id`, `cert_name`, `resource_type`, `used_by` (comma-joined).
 
 | Metric | Type | Description |
 |---|---|---|
-| `nsxv3_certificate_seconds_to_expiry` | gauge | Seconds remaining until `not_after`. Negative if already expired |
+| `nsxv3_certificate_not_after_timestamp` | gauge | Absolute UNIX timestamp (epoch seconds) at which the certificate expires. Compute remaining lifetime as `value - now()` |
 
 ## Backup (new)
 

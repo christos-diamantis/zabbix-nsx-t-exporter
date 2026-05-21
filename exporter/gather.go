@@ -525,6 +525,12 @@ func (e *Exporter) gather(ctx context.Context, data *Nsxv3Data) error {
 // hierarchies (BGP, LB, edges) outside the wave-based dispatch pattern.
 // Each collector is wrapped so an individual failure cannot kill the scrape.
 func (e *Exporter) runExtendedCollectors(ctx context.Context, client *Nsxv3Client, data *Nsxv3Data) {
+	// Always-on: cheap enrichment that adds display_name to transport nodes.
+	// Failure here only loses the friendly label; numeric metrics still emit.
+	if err := enrichTransportNodeNames(ctx, client, data); err != nil {
+		log.Warnf("transport node name enrichment failed: %v", err)
+	}
+
 	if e.IncludeEdgeStats {
 		if err := collectEdgeNodes(ctx, client, data); err != nil {
 			log.Errorf("edge node collector failed: %v", err)

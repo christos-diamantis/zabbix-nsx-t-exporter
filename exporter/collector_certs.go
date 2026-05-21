@@ -5,7 +5,6 @@ package exporter
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -13,11 +12,11 @@ import (
 // Nsxv3CertificateData captures expiry data for one certificate registered
 // with NSX-T trust management.
 type Nsxv3CertificateData struct {
-	ID             string
-	DisplayName    string
-	ResourceType   string
-	UsedBy         string // comma-joined service/node IDs referencing this cert
-	SecondsToExpiry float64
+	ID              string
+	DisplayName     string
+	ResourceType    string
+	UsedBy          string // comma-joined service/node IDs referencing this cert
+	NotAfterUnix    float64 // absolute epoch seconds; time at which the cert expires
 }
 
 type trustCertEntry struct {
@@ -40,7 +39,6 @@ type trustCertList struct {
 func collectCertificates(ctx context.Context, client *Nsxv3Client, data *Nsxv3Data) error {
 	var out []Nsxv3CertificateData
 	cursor := ""
-	now := float64(time.Now().Unix())
 	for {
 		p := "/api/v1/trust-management/certificates?page_size=200"
 		if cursor != "" {
@@ -51,7 +49,6 @@ func collectCertificates(ctx context.Context, client *Nsxv3Client, data *Nsxv3Da
 			return err
 		}
 		for _, c := range resp.Results {
-			expiry := c.NotAfter / 1000.0 // ms -> seconds
 			usedByParts := []string{}
 			for _, u := range c.UsedBy {
 				usedByParts = append(usedByParts, u.ServiceTypes...)
@@ -60,11 +57,11 @@ func collectCertificates(ctx context.Context, client *Nsxv3Client, data *Nsxv3Da
 				}
 			}
 			out = append(out, Nsxv3CertificateData{
-				ID:              c.ID,
-				DisplayName:     c.DisplayName,
-				ResourceType:    c.ResourceType,
-				UsedBy:          strings.Join(usedByParts, ","),
-				SecondsToExpiry: expiry - now,
+				ID:           c.ID,
+				DisplayName:  c.DisplayName,
+				ResourceType: c.ResourceType,
+				UsedBy:       strings.Join(usedByParts, ","),
+				NotAfterUnix: c.NotAfter / 1000.0, // ms -> seconds
 			})
 		}
 		if resp.Cursor == "" {
@@ -78,9 +75,9 @@ func collectCertificates(ctx context.Context, client *Nsxv3Client, data *Nsxv3Da
 
 func registerCertificateMetrics(m map[string]*prometheus.Desc) {
 	labels := []string{NSXV3_MANAGER_HOSTNAME, "cert_id", "cert_name", "resource_type", "used_by"}
-	m["CertificateSecondsToExpiry"] = prometheus.NewDesc(
-		prometheus.BuildFQName("nsxv3", "certificate", "seconds_to_expiry"),
-		"NSX-T certificate seconds remaining until expiry (negative if already expired). Threshold: <30d = warn, <7d = critical",
+	m["CertificateNotAfter"] = prometheus.NewDesc(
+		prometheus.BuildFQName("nsxv3", "certificate", "not_after_timestamp"),
+		"NSX-T certificate expiry as a UNIX timestamp (epoch seconds). Compare against now() to derive remaining lifetime",
 		labels, nil,
 	)
 }
@@ -88,8 +85,8 @@ func registerCertificateMetrics(m map[string]*prometheus.Desc) {
 func (e *Exporter) emitCertificateMetrics(host string, data *Nsxv3Data, ch chan<- prometheus.Metric) {
 	for _, c := range data.Certificates {
 		ch <- prometheus.MustNewConstMetric(
-			e.APIMetrics["CertificateSecondsToExpiry"],
-			prometheus.GaugeValue, c.SecondsToExpiry,
+			e.APIMetrics["CertificateNotAfter"],
+			prometheus.GaugeValue, c.NotAfterUnix,
 			host, c.ID, c.DisplayName, c.ResourceType, c.UsedBy,
 		)
 	}

@@ -432,9 +432,11 @@ zabbix_export:
           lld_macro_paths:
             - lld_macro: '{#NODE_ID}'
               path: '$.labels.nsxv3_node_id'
+            - lld_macro: '{#NODE_NAME}'
+              path: '$.labels.display_name'
           item_prototypes:
             - uuid: 7063f818fca34298a86e7377443414d1
-              name: 'TN {#NODE_ID}: State'
+              name: 'TN {#NODE_NAME}: State'
               type: DEPENDENT
               key: 'nsxt.transport_node.state[{#NODE_ID}]'
               master_item:
@@ -451,11 +453,11 @@ zabbix_export:
               trigger_prototypes:
                 - uuid: 3741b8c5f6284528b134acd4518b7da9
                   expression: 'last(/NSX-T by Prometheus exporter/nsxt.transport_node.state[{#NODE_ID}])<1'
-                  name: 'NSX-T: Transport node {#NODE_ID} is not healthy ({ITEM.LASTVALUE})'
+                  name: 'NSX-T: Transport node {#NODE_NAME} is not healthy ({ITEM.LASTVALUE})'
                   priority: HIGH
                   description: 'Operational scenario #3: transport node disconnected.'
             - uuid: f6ceee252971474986d6b3d5fe0f078b
-              name: 'TN {#NODE_ID}: Deployment state'
+              name: 'TN {#NODE_NAME}: Deployment state'
               type: DEPENDENT
               key: 'nsxt.transport_node.deployment_state[{#NODE_ID}]'
               master_item:
@@ -849,7 +851,7 @@ zabbix_export:
           preprocessing:
             - type: PROMETHEUS_TO_JSON
               parameters:
-                - 'nsxv3_certificate_seconds_to_expiry'
+                - 'nsxv3_certificate_not_after_timestamp'
           lld_macro_paths:
             - lld_macro: '{#CERT_ID}'
               path: '$.labels.cert_id'
@@ -859,28 +861,29 @@ zabbix_export:
               path: '$.labels.used_by'
           item_prototypes:
             - uuid: 46f4f446c34a43d2b5430291b994a932
-              name: 'Cert {#CERT_NAME}: Seconds to expiry'
+              name: 'Cert {#CERT_NAME}: Expiry timestamp'
               type: DEPENDENT
-              key: 'nsxt.cert.seconds_to_expiry[{#CERT_ID}]'
+              key: 'nsxt.cert.not_after[{#CERT_ID}]'
               master_item:
                 key: nsxt.get
               delay: '0'
               value_type: FLOAT
-              units: s
+              units: unixtime
+              description: 'Absolute UNIX timestamp at which the certificate expires.'
               preprocessing:
                 - type: PROMETHEUS_PATTERN
                   parameters:
-                    - 'nsxv3_certificate_seconds_to_expiry{cert_id="{#CERT_ID}"}'
+                    - 'nsxv3_certificate_not_after_timestamp{cert_id="{#CERT_ID}"}'
                     - value
                     - ''
               trigger_prototypes:
                 - uuid: 5051dc1c1cbc4d1c908c78c0b7986fc7
-                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.cert.seconds_to_expiry[{#CERT_ID}])<({$NSXT.CERT.CRIT.DAYS}*86400)'
+                  expression: '(last(/NSX-T by Prometheus exporter/nsxt.cert.not_after[{#CERT_ID}])-now())<({$NSXT.CERT.CRIT.DAYS}*86400)'
                   name: 'NSX-T: Certificate {#CERT_NAME} expires in less than {$NSXT.CERT.CRIT.DAYS} days'
                   priority: HIGH
                   description: 'Operational scenario #8: certificate expiration (critical).'
                 - uuid: 34bbb03918c34c019bb8093397a8f09d
-                  expression: 'last(/NSX-T by Prometheus exporter/nsxt.cert.seconds_to_expiry[{#CERT_ID}])<({$NSXT.CERT.WARN.DAYS}*86400) and last(/NSX-T by Prometheus exporter/nsxt.cert.seconds_to_expiry[{#CERT_ID}])>=({$NSXT.CERT.CRIT.DAYS}*86400)'
+                  expression: '(last(/NSX-T by Prometheus exporter/nsxt.cert.not_after[{#CERT_ID}])-now())<({$NSXT.CERT.WARN.DAYS}*86400) and (last(/NSX-T by Prometheus exporter/nsxt.cert.not_after[{#CERT_ID}])-now())>=({$NSXT.CERT.CRIT.DAYS}*86400)'
                   name: 'NSX-T: Certificate {#CERT_NAME} expires in less than {$NSXT.CERT.WARN.DAYS} days'
                   priority: WARNING
 

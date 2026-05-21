@@ -176,13 +176,13 @@ func GetMetricsDescription() map[string]*prometheus.Desc {
 	APIMetrics["TransportNodeState"] = prometheus.NewDesc(
 		prometheus.BuildFQName("nsxv3", "transport_node", "state"),
 		"NSX-T transport node state - SUCCESS=1, IN_PROGRESS=0, PENDING=-1, FAILED=-2, PARTIAL_SUCCESS=-3, ORPHANED=-4, UNKNOWN=-5",
-		[]string{NSXV3_MANAGER_HOSTNAME, NSXV3_NODE_ID}, nil,
+		[]string{NSXV3_MANAGER_HOSTNAME, NSXV3_NODE_ID, "display_name"}, nil,
 	)
 
 	APIMetrics["TransportNodeDeploymentState"] = prometheus.NewDesc(
 		prometheus.BuildFQName("nsxv3", "transport_node", "deployment_state"),
 		"NSX-T transport node deployment state - SUCCESS=1, IN_PROGRESS=0, PENDING=-1, FAILED=-2, PARTIAL_SUCCESS=-3, ORPHANED=-4, UNKNOWN=-5",
-		[]string{NSXV3_MANAGER_HOSTNAME, NSXV3_NODE_ID}, nil,
+		[]string{NSXV3_MANAGER_HOSTNAME, NSXV3_NODE_ID, "display_name"}, nil,
 	)
 
 	APIMetrics["LogicalSwitchAdminState"] = prometheus.NewDesc(
@@ -475,13 +475,13 @@ func (e *Exporter) processTransportNodeMetrics(host string, data *Nsxv3Transport
 		e.APIMetrics["TransportNodeState"],
 		prometheus.GaugeValue,
 		data.State,
-		host, data.ID)
+		host, data.ID, data.DisplayName)
 
 	ch <- prometheus.MustNewConstMetric(
 		e.APIMetrics["TransportNodeDeploymentState"],
 		prometheus.GaugeValue,
 		data.DeploymentState,
-		host, data.ID)
+		host, data.ID, data.DisplayName)
 }
 
 func (e *Exporter) processLogicalSwitchAdminStateMetrics(host string, data *Nsxv3LogicalSwitchAdminStateData, ch chan<- prometheus.Metric) {

@@ -28,7 +28,12 @@ next scrape. The Zabbix LLD entry persists for `lifetime: 7d`, so the
 
 | Trigger | Severity | Expression |
 |---|---|---|
-| Transport node $NODE_ID is not healthy | HIGH | LLD: `last(.../nsxt.transport_node.state[{#NODE_ID}]) < 1` |
+| Transport node $NODE_NAME is not healthy | HIGH | LLD: `last(.../nsxt.transport_node.state[{#NODE_ID}]) < 1` |
+
+The trigger name uses the friendly `{#NODE_NAME}` (display_name from NSX-T
+inventory) so alerts read e.g. "Transport node el1001esxprd14 is not
+healthy" rather than a UUID. The item key still uses `{#NODE_ID}` because
+that's the stable Zabbix identifier — renames in NSX don't churn the items.
 
 ## #4 — High CPU/Memory on Edge/Manager
 
@@ -79,10 +84,17 @@ from policy pools (segment/VM IPs — easy to extend).
 
 | Trigger | Severity | Expression |
 |---|---|---|
-| Certificate $CERT_NAME expires in <$CRIT.DAYS days | HIGH | LLD: `last(.../nsxt.cert.seconds_to_expiry[{#CERT_ID}]) < ($NSXT.CERT.CRIT.DAYS * 86400)` |
+| Certificate $CERT_NAME expires in <$CRIT.DAYS days | HIGH | LLD: `(last(.../nsxt.cert.not_after[{#CERT_ID}]) - now()) < ($NSXT.CERT.CRIT.DAYS * 86400)` |
 | Certificate $CERT_NAME expires in <$WARN.DAYS days | WARNING | LLD: warn-but-not-crit window |
 
 Defaults: WARN.DAYS=30, CRIT.DAYS=7.
+
+The exporter publishes `nsxv3_certificate_not_after_timestamp` as an
+absolute UNIX timestamp (epoch seconds at which the cert expires) rather
+than a precomputed "seconds remaining". The trigger derives the remaining
+lifetime as `last(item) - now()` which lets the Zabbix UI display the
+expiry as a wall-clock date and lets you write ad-hoc queries against
+real expiry dates.
 
 ## #9 — Backup failure
 
