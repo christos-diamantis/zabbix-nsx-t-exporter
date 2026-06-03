@@ -847,24 +847,72 @@ zabbix_export:
           delay: '0'
           item_prototypes:
             - uuid: f5e123607cb94f94bc978229f64562c4
-              name: 'Member {#MEMBER_IP}:{#MEMBER_PORT} ({#POOL_NAME}): Status'
+              name: 'Member {#MEMBER_IP}:{#MEMBER_PORT} ({#POOL_NAME}): Current sessions'
               type: DEPENDENT
-              key: 'nsxt.lb.member.status[{#POOL_ID},{#MEMBER_IP},{#MEMBER_PORT}]'
+              key: 'nsxt.lb.member.current_sessions[{#POOL_ID},{#MEMBER_IP},{#MEMBER_PORT}]'
               delay: '0'
               value_type: FLOAT
+              description: 'Active concurrent sessions on this pool member.'
               preprocessing:
                 - type: PROMETHEUS_PATTERN
                   parameters:
-                    - 'nsxv3_lb_pool_member_status{pool_id="{#POOL_ID}",member_ip="{#MEMBER_IP}",member_port="{#MEMBER_PORT}"}'
+                    - 'nsxv3_lb_pool_member_current_sessions{pool_id="{#POOL_ID}",member_ip="{#MEMBER_IP}",member_port="{#MEMBER_PORT}"}'
                     - value
                     - ''
               master_item:
                 key: nsxt.get
               trigger_prototypes:
                 - uuid: 9f8f99cdeb284a18ab2adc79ad39069d
-                  expression: 'last(/ADAPTERA - NSX-T by Prometheus exporter/nsxt.lb.member.status[{#POOL_ID},{#MEMBER_IP},{#MEMBER_PORT}])<1'
-                  name: 'NSX-T: Pool member {#MEMBER_IP}:{#MEMBER_PORT} of {#POOL_NAME} is not UP'
+                  expression: 'nodata(/ADAPTERA - NSX-T by Prometheus exporter/nsxt.lb.member.current_sessions[{#POOL_ID},{#MEMBER_IP},{#MEMBER_PORT}],10m)=1'
+                  name: 'NSX-T: Pool member {#MEMBER_IP}:{#MEMBER_PORT} of {#POOL_NAME} has disappeared'
                   priority: AVERAGE
+                  description: 'NSX-T does not expose per-member operational status for NCP-managed pools, so we proxy it: when the exporter has not reported the member for 10 minutes it has been removed from the pool by NSX (member down or pool reconfigured).'
+            - uuid: c3f1142553e44cc4a66bdea53efc1092
+              name: 'Member {#MEMBER_IP}:{#MEMBER_PORT} ({#POOL_NAME}): Total sessions (counter)'
+              type: DEPENDENT
+              key: 'nsxt.lb.member.sessions_total[{#POOL_ID},{#MEMBER_IP},{#MEMBER_PORT}]'
+              delay: '0'
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_pool_member_sessions_total{pool_id="{#POOL_ID}",member_ip="{#MEMBER_IP}",member_port="{#MEMBER_PORT}"}'
+                    - value
+                    - ''
+              master_item:
+                key: nsxt.get
+            - uuid: 12d49c9b50b04fd2ac0b5bbb80278b12
+              name: 'Member {#MEMBER_IP}:{#MEMBER_PORT} ({#POOL_NAME}): Bytes in (counter)'
+              type: DEPENDENT
+              key: 'nsxt.lb.member.bytes_in[{#POOL_ID},{#MEMBER_IP},{#MEMBER_PORT}]'
+              delay: '0'
+              value_type: FLOAT
+              units: B
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_pool_member_bytes_in_total{pool_id="{#POOL_ID}",member_ip="{#MEMBER_IP}",member_port="{#MEMBER_PORT}"}'
+                    - value
+                    - ''
+                - type: CHANGE_PER_SECOND
+              master_item:
+                key: nsxt.get
+            - uuid: 9b22069902e34cda92f9bf3b1c2ff26f
+              name: 'Member {#MEMBER_IP}:{#MEMBER_PORT} ({#POOL_NAME}): Bytes out (counter)'
+              type: DEPENDENT
+              key: 'nsxt.lb.member.bytes_out[{#POOL_ID},{#MEMBER_IP},{#MEMBER_PORT}]'
+              delay: '0'
+              value_type: FLOAT
+              units: B
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'nsxv3_lb_pool_member_bytes_out_total{pool_id="{#POOL_ID}",member_ip="{#MEMBER_IP}",member_port="{#MEMBER_PORT}"}'
+                    - value
+                    - ''
+                - type: CHANGE_PER_SECOND
+              master_item:
+                key: nsxt.get
           master_item:
             key: nsxt.get
           lld_macro_paths:
@@ -879,7 +927,7 @@ zabbix_export:
           preprocessing:
             - type: PROMETHEUS_TO_JSON
               parameters:
-                - nsxv3_lb_pool_member_status
+                - nsxv3_lb_pool_member_current_sessions
         - uuid: 5d1e2dff4b8048ab9460a34542a48038
           name: 'NSX-T: LB pools discovery'
           type: DEPENDENT

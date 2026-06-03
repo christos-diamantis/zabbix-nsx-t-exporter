@@ -114,12 +114,19 @@ the staleness threshold fires.
 | LB service $LB_NAME is not UP | HIGH | LLD: `last(.../nsxt.lb.service.status[{#LB_ID}]) < 1` |
 | Virtual server $VS_NAME is not UP | HIGH | LLD: `last(.../nsxt.lb.vs.status[{#VS_ID}]) < 1` |
 | Pool $POOL_NAME is not UP | HIGH | LLD: `last(.../nsxt.lb.pool.status[{#POOL_ID}]) < 1` |
-| Pool member $IP:$PORT of $POOL_NAME is not UP | AVERAGE | LLD: `last(.../nsxt.lb.member.status[...]) < 1` |
+| Pool member $IP:$PORT has disappeared | AVERAGE | LLD: `nodata(.../nsxt.lb.member.current_sessions[...], 10m) = 1` |
 
-Pool members are AVERAGE because a single failed member typically doesn't
-take a VS down (the pool routes around it); but you still want to know.
 Pool/VS/service unavailability is HIGH because it implies customer-visible
-impact.
+impact. Pool member triggers are AVERAGE because a single failed member
+typically doesn't take a VS down (the pool routes around it) — but you
+still want to know.
+
+The pool-member trigger uses a `nodata()` check rather than a status
+comparison. NSX-T 4.2 does not expose `pool member status` for
+NCP-managed pools, so we detect a member going away by the absence of
+its counter series for 10 minutes. The pool's own `_status` trigger
+(which **does** transition to `PARTIALLY_UP` when a member is unhealthy)
+remains the primary signal.
 
 ## Exporter availability
 

@@ -135,7 +135,7 @@ Per level:
 
 | Suffix | Type | Description |
 |---|---|---|
-| `_status` | gauge | UP=1, see metric help for full mapping per level |
+| `_status` | gauge | UP=1, see metric help for full mapping per level. **Not emitted at the pool_member level** — see note below |
 | `_sessions_total` | counter | Cumulative session count |
 | `_current_sessions` | gauge | Concurrent sessions now |
 | `_max_sessions` | gauge | Historical peak |
@@ -147,3 +147,23 @@ Per level:
 In Zabbix, use the `Change per second` preprocessor on top of
 `prometheus.pattern` for the `_total` counters to derive bandwidth and
 session rates.
+
+### Pool member status — known limitation
+
+NSX-T 4.2 does not expose per-pool-member operational status (UP/DOWN)
+for NCP-managed pools through any policy API endpoint. We have field-
+tested:
+
+- `/policy/api/v1/infra/lb-services/<svc>/detailed-status` — the
+  `pools[]` entries have only `{pool_path, status}`, no members
+- `/policy/api/v1/infra/lb-services/<svc>/lb-pools/<pool>/detailed-status`
+  — returns 200 with `{pool_path, status}` only, also no members
+
+Per-member counters (sessions, bytes, packets, HTTP) are populated
+correctly from `/lb-services/<svc>/statistics` → `pools[].members[]`.
+
+To detect member failures despite the missing status:
+- The **pool**'s `_status` will transition to `PARTIALLY_UP` when one
+  of its members goes DOWN. Alert on that.
+- In Zabbix, a `nodata(...)` trigger on a member's `_current_sessions`
+  detects when NSX has removed the member from the pool entirely.
