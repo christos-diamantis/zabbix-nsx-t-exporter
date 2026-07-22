@@ -172,11 +172,23 @@ func (c *Nsxv3Client) updateEndpointStatus(ctx context.Context, status *Nsxv3Res
 	status.request.Header.Set("X-XSRF-TOKEN", c.token)
 
 	status.response, status.err = c.executeRequest(ctx, status.request)
-	defer status.response.Body.Close()
-
+	// executeRequest may return (nil, err) on any transport-level failure
+	// (TLS, connection refused, rate-limit wait deadline, etc). The original
+	// upstream code deferred Body.Close before this nil check, which panics
+	// the whole exporter when the HTTP call fails. Guard both the nil
+	// response and (paranoia) a nil Body.
 	if status.err != nil {
 		return
 	}
+	if status.response == nil {
+		status.err = fmt.Errorf("nil response from endpoint %v", status.kind)
+		return
+	}
+	defer func() {
+		if status.response != nil && status.response.Body != nil {
+			status.response.Body.Close()
+		}
+	}()
 
 	if status.response.StatusCode < 200 || status.response.StatusCode > 299 {
 		status.err = fmt.Errorf("request to endpoint %v failed with %d", status.kind, status.response.StatusCode)
