@@ -78,6 +78,20 @@ func getNodeIndexByIP(data *Nsxv3Data, ip string) int {
 	return -1
 }
 
+// jsonMap returns m[key] as an object, or ok=false if the key is absent,
+// null or not an object.
+func jsonMap(m map[string]any, key string) (map[string]any, bool) {
+	v, ok := m[key].(map[string]any)
+	return v, ok
+}
+
+// jsonString returns m[key] as a string, or ok=false if the key is absent,
+// null or not a string.
+func jsonString(m map[string]any, key string) (string, bool) {
+	v, ok := m[key].(string)
+	return v, ok
+}
+
 func clusterStatusHandler(data *Nsxv3Data, status *Nsxv3Resource) (string, error) {
 	managementClusterInfo := status.state["mgmt_cluster_status"].(map[string]any)
 
@@ -204,13 +218,36 @@ func transportNodeStateHandler(data *Nsxv3Data, status *Nsxv3Resource) (string, 
 		next = cursor.(string)
 	}
 	for _, node := range nodes {
+		nodeProperties, ok := node.(map[string]any)
+		if !ok {
+			log.Warnf("transport node state: skipping non-object entry %T", node)
+			continue
+		}
+
 		nodeData := new(Nsxv3TransportNodeData)
 
-		nodeProperties := node.(map[string]any)
+		// transport_node_id is the metric label; without it the entry is useless.
+		nodeData.ID, ok = jsonString(nodeProperties, "transport_node_id")
+		if !ok {
+			log.Warnf("transport node state: skipping entry without transport_node_id")
+			continue
+		}
 
-		nodeData.ID = nodeProperties["transport_node_id"].(string)
-		nodeData.State = transportNodeStates[strings.ToUpper(nodeProperties["state"].(string))]
-		nodeData.DeploymentState = transportNodeStates[strings.ToUpper(nodeProperties["node_deployment_state"].(map[string]any)["state"].(string))]
+		// state and node_deployment_state are both optional in the NSX-T API.
+		// A node mid-installation/removal (or one whose deployment is not
+		// tracked by NSX) omits node_deployment_state entirely, which used to
+		// panic the whole exporter. Missing values map to UNKNOWN (-5).
+		nodeData.State = transportNodeStates["UNKNOWN"]
+		if state, ok := jsonString(nodeProperties, "state"); ok {
+			nodeData.State = transportNodeStates[strings.ToUpper(state)]
+		}
+
+		nodeData.DeploymentState = transportNodeStates["UNKNOWN"]
+		if deployment, ok := jsonMap(nodeProperties, "node_deployment_state"); ok {
+			if state, ok := jsonString(deployment, "state"); ok {
+				nodeData.DeploymentState = transportNodeStates[strings.ToUpper(state)]
+			}
+		}
 
 		data.TransportNodes = append(data.TransportNodes, *nodeData)
 	}
@@ -402,7 +439,27 @@ func getEndpointStatus(endpointStatusType Nsxv3ResourceKind, endpointHost string
 	return Nsxv3Resource{}
 }
 
-func handle(data *Nsxv3Data, status *Nsxv3Resource) (string, error) {
+// handle dispatches a fetched endpoint payload to its parser. The upstream
+// handlers index the decoded JSON with chained type assertions, so any field
+// NSX-T omits or types differently panics. Each handler runs in its own
+// goroutine from gatherWave, where an unrecovered panic kills the whole
+// exporter process. Convert such panics into an ordinary error so a single
+// malformed payload only fails that endpoint for this scrape.
+func handle(data *Nsxv3Data, status *Nsxv3Resource) (cursor string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			path := ""
+			if status.request != nil && status.request.URL != nil {
+				path = status.request.URL.Path
+			}
+			cursor = noCursor
+			err = fmt.Errorf("handler for endpoint %v (%s) panicked on unexpected payload: %v", status.kind, path, r)
+		}
+	}()
+	return dispatch(data, status)
+}
+
+func dispatch(data *Nsxv3Data, status *Nsxv3Resource) (string, error) {
 	switch id := status.kind; id {
 	case ManagementCluster:
 		return clusterStatusHandler(data, status)
