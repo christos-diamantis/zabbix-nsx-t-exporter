@@ -1,5 +1,10 @@
 # Zabbix NSX-T monitoring
 
+[![Checks](https://github.com/christos-diamantis/zabbix-nsx-t-exporter/actions/workflows/checks.yaml/badge.svg)](https://github.com/christos-diamantis/zabbix-nsx-t-exporter/actions/workflows/checks.yaml)
+[![Docker](https://github.com/christos-diamantis/zabbix-nsx-t-exporter/actions/workflows/docker.yaml/badge.svg)](https://github.com/christos-diamantis/zabbix-nsx-t-exporter/actions/workflows/docker.yaml)
+[![Docker Hub](https://img.shields.io/docker/v/cdiamantis/zabbix-nsx-t-exporter?sort=semver&logo=docker&label=Docker%20Hub)](https://hub.docker.com/r/cdiamantis/zabbix-nsx-t-exporter)
+[![Docker Pulls](https://img.shields.io/docker/pulls/cdiamantis/zabbix-nsx-t-exporter?logo=docker)](https://hub.docker.com/r/cdiamantis/zabbix-nsx-t-exporter)
+
 VMware NSX-T 4.2 monitoring with a Prometheus exporter and a Zabbix 7.0
 template, designed around nine concrete operational scenarios that an
 NSX-T operator wants to be alerted on.
@@ -46,11 +51,20 @@ preprocessors — no external sidecars or pushers.
 go build -o nsx-t-exporter .
 ```
 
-Or via Docker:
+Or pull the published image from
+[Docker Hub](https://hub.docker.com/r/cdiamantis/zabbix-nsx-t-exporter):
 
 ```
-docker build -t nsx-t-exporter .
+docker pull cdiamantis/zabbix-nsx-t-exporter:latest
 docker compose up -d
+```
+
+Images are built for `linux/amd64` and `linux/arm64` on every push to
+`main` (`:latest`, `:sha-<short>`) and on every `v*` tag (`:1.2.3`, `:1.2`,
+`:1`). To build locally instead:
+
+```
+docker build -t cdiamantis/zabbix-nsx-t-exporter .
 ```
 
 ## Configuration

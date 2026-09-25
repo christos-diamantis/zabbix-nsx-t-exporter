@@ -1,7 +1,8 @@
 services:
   nsx-t-exporter:
-    image: zabbix-nsx-t-exporter:latest
-    build: .
+    image: cdiamantis/zabbix-nsx-t-exporter:latest
+    # Uncomment to build from source instead of pulling from Docker Hub:
+    # build: .
     container_name: nsx-t-exporter
     restart: unless-stopped
     ports:
