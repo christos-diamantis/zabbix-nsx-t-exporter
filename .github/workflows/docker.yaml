@@ -40,7 +40,7 @@ jobs:
 
       # Tagging scheme:
       #   push to main   -> :latest, :main, :sha-<short>
-      #   tag v1.2.3     -> :1.2.3, :1.2, :1, :latest
+      #   tag v1.2.3     -> :v1.2.3, :v1.2, :v1, :latest
       #   pull request   -> :pr-<n> (built, never pushed)
       - name: Docker metadata
         id: meta
@@ -50,9 +50,9 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=semver,pattern=v{{major}}
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
           labels: |

@@ -60,8 +60,8 @@ docker compose up -d
 ```
 
 Images are built for `linux/amd64` and `linux/arm64` on every push to
-`main` (`:latest`, `:sha-<short>`) and on every `v*` tag (`:1.2.3`, `:1.2`,
-`:1`). To build locally instead:
+`main` (`:latest`, `:sha-<short>`) and on every `v*` tag (`:v1.2.3`, `:v1.2`,
+`:v1`). To build locally instead:
 
 ```
 docker build -t cdiamantis/zabbix-nsx-t-exporter .
