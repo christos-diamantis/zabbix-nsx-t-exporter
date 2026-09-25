@@ -74,8 +74,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Docker Hub's description API rejects access tokens that lack the
+      # Delete scope with 403 Forbidden. The images are already pushed by this
+      # point, so a failure here must not fail the workflow.
       - name: Update Docker Hub description
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
